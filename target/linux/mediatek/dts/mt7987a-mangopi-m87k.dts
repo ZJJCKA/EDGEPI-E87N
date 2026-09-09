@@ -1,0 +1,190 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * MangoPi M87K board support
+ */
+
+/dts-v1/;
+#include "mt7987a.dtsi"
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+
+/ {
+	model = "MangoPi M87K";
+	compatible = "mangopi,m87k", "mediatek,mt7987a", "mediatek,mt7987";
+
+	aliases {
+		serial0 = &uart0;
+	};
+
+	chosen {
+		bootargs = "console=ttyS0,115200n1 earlycon=uart8250,mmio32,0x11000000 \
+			    root=PARTLABEL=rootfs rootwait rootfstype=squashfs,f2fs \
+			    pci=pcie_bus_perf";
+		stdout-path = "serial0:115200n8";
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		button-reset {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+			debounce-interval = <10>;
+		};
+
+		button-wps {
+			label = "wps";
+			linux,code = <KEY_WPS_BUTTON>;
+			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
+			debounce-interval = <10>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led_wan_green: led-wan-green {
+			label = "LED-WAN-G";
+			function = LED_FUNCTION_STATUS;
+			gpios = <&pio 45 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		led_wan_yellow: led-wan-yellow {
+			label = "LED-WAN-Y";
+			function = LED_FUNCTION_STATUS;
+			gpios = <&pio 13 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		led_system: led-system {
+			label = "LED-SYS";
+			function = LED_FUNCTION_STATUS;
+			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
+			default-state = "on";
+		};
+	};
+
+	reg_3p3v: regulator-3p3v {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-3.3V";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+};
+
+&eth {
+	status = "okay";
+};
+
+&fan {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_fan_pins>;
+	cooling-levels = <0 10 20 30 40 50 60 70 80 90 100 110 120
+			   130 140 150 160 170 180 190 200 210 220 240 255>;
+	pwms = <&pwm 2 50000 0>;
+	status = "okay";
+};
+
+&gmac0 {
+	phy-mode = "2500base-x";
+	phy-handle = <&phy7>;
+	status = "okay";
+};
+
+&gmac1 {
+	phy-mode = "internal";
+	phy-handle = <&phy15>;
+	status = "okay";
+};
+
+&i2c0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c0_pins>;
+	status = "okay";
+};
+
+&mdio {
+	/* RTL8221B-VB-CG external 2.5GbE PHY, eth0 */
+	phy7: phy@7 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <7>;
+		reset-assert-us = <100000>;
+		reset-deassert-us = <100000>;
+		reset-gpios = <&pio 42 GPIO_ACTIVE_LOW>;
+		interrupt-parent = <&pio>;
+		interrupts = <41 IRQ_TYPE_LEVEL_LOW>;
+		realtek,aldps-enable;
+		/* RTL8221 LED0 green: 1G/2.5G; LED1 yellow: 100M/2.5G. */
+		realtek,led-link-select = <0x24 0x22 0x0>;
+		/* Match the validated E87N RTL8221 cadence: 60 ms, 50% duty. */
+		realtek,led-act-select = <0x3a13>;
+	};
+
+	/* MT7987 internal 2.5GbE PHY, eth1 */
+	phy15: phy@15 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <15>;
+	};
+};
+
+&mmc0 {
+	pinctrl-names = "default", "state_uhs";
+	pinctrl-0 = <&mmc_pins_default>;
+	pinctrl-1 = <&mmc_pins_uhs>;
+	bus-width = <8>;
+	max-frequency = <48000000>;
+	cap-mmc-highspeed;
+	vmmc-supply = <&reg_3p3v>;
+	non-removable;
+	status = "okay";
+};
+
+&pcie0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie0_pins>;
+	num-lanes = <1>;
+	status = "okay";
+};
+
+&pcie1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie1_pins>;
+	num-lanes = <1>;
+	status = "okay";
+};
+
+&pio {
+	pwm_fan_pins: pwm-fan-pins {
+		mux {
+			function = "pwm";
+			groups = "pwm2_0";
+		};
+	};
+};
+
+&pwm {
+	status = "okay";
+};
+
+/* MSDC and SPI1 share pins on MT7987. */
+&spi1 {
+	status = "disabled";
+};
+
+&ssusb {
+	status = "okay";
+};
+
+&tphyu3port0 {
+	status = "okay";
+};
+
+&uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pins>;
+	status = "okay";
+};

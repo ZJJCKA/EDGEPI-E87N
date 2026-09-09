@@ -1,0 +1,251 @@
+#samba-nvme-storage .cbi-section-node,
+#cbi-samba4-sambashare {
+	overflow-x: auto !important;
+	overflow-y: hidden !important;
+	-webkit-overflow-scrolling: touch;
+}
+
+#samba-nvme-storage .cbi-section-table {
+	display: block !important;
+	box-sizing: border-box !important;
+	width: 100% !important;
+	min-width: 1170px !important;
+}
+
+#samba-nvme-storage .cbi-section-table-titles,
+#samba-nvme-storage .cbi-section-table-row {
+	display: grid !important;
+	grid-template-columns: minmax(130px, 1.3fr) minmax(210px, 2.1fr) minmax(160px, 1.6fr) minmax(110px, 1.1fr) minmax(120px, 1.2fr) minmax(160px, 1.6fr) minmax(280px, 2.8fr) !important;
+	box-sizing: border-box !important;
+	width: 100% !important;
+	min-width: 1170px !important;
+}
+
+#samba-nvme-storage .cbi-section-table-titles > .th,
+#samba-nvme-storage .cbi-section-table-row > .td {
+	display: flex !important;
+	box-sizing: border-box !important;
+	min-width: 0 !important;
+	min-height: 58px !important;
+	margin: 0 !important;
+	padding: 10px !important;
+	align-items: center !important;
+	justify-content: center !important;
+	text-align: center !important;
+	white-space: nowrap !important;
+}
+
+#samba-nvme-storage .cbi-section-table-row::before,
+#samba-nvme-storage .cbi-section-table-row > .td::before,
+#samba-nvme-storage .cbi-section-table-row > [data-title]::before {
+	display: none !important;
+	content: none !important;
+}
+
+#samba-nvme-storage .samba-nvme-actions {
+	display: flex;
+	min-height: 38px;
+	margin: 0 auto;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	flex-wrap: nowrap;
+	white-space: nowrap;
+}
+
+#samba-nvme-storage .samba-nvme-actions > .btn {
+	margin: 0;
+	white-space: nowrap;
+}
+
+#cbi-samba4-sambashare {
+	--samba-share-surface: var(--background-color-high, #fff);
+	--samba-share-head: var(--samba-share-surface);
+	--samba-share-row: var(--background-color-low, #f7f8fa);
+	background: var(--samba-share-surface) !important;
+}
+
+#cbi-samba4-sambashare .cbi-section-table {
+	display: block !important;
+	box-sizing: border-box !important;
+	width: 100% !important;
+	min-width: 1810px !important;
+	max-width: none !important;
+	margin-left: 0 !important;
+	margin-right: 0 !important;
+	background: var(--samba-share-surface) !important;
+}
+
+#cbi-samba4-sambashare .cbi-section-thead,
+#cbi-samba4-sambashare .cbi-section-tbody,
+#cbi-samba4-sambashare .cbi-section-tfoot {
+	display: block !important;
+	box-sizing: border-box !important;
+	width: 100% !important;
+	min-width: 1810px !important;
+	max-width: none !important;
+	margin: 0 !important;
+	padding: 0 !important;
+}
+
+#cbi-samba4-sambashare .cbi-section-table-titles,
+#cbi-samba4-sambashare .cbi-section-table-row {
+	display: grid !important;
+	grid-template-columns: minmax(110px, 1.1fr) minmax(160px, 1.6fr) minmax(70px, .7fr) minmax(70px, .7fr) minmax(90px, .9fr) minmax(120px, 1.2fr) minmax(130px, 1.3fr) minmax(100px, 1fr) minmax(100px, 1fr) minmax(110px, 1.1fr) minmax(110px, 1.1fr) minmax(110px, 1.1fr) minmax(120px, 1.2fr) minmax(170px, 1.7fr) minmax(150px, 1.5fr) minmax(90px, .9fr) !important;
+	box-sizing: border-box !important;
+	width: 100% !important;
+	min-width: 1810px !important;
+	max-width: none !important;
+	background: var(--samba-share-row) !important;
+}
+
+#cbi-samba4-sambashare .cbi-section-table-titles {
+	background: var(--samba-share-head) !important;
+}
+
+#cbi-samba4-sambashare .cbi-section-table-titles > .th,
+#cbi-samba4-sambashare .cbi-section-table-row > .td {
+	display: flex !important;
+	float: none !important;
+	box-sizing: border-box !important;
+	width: auto !important;
+	min-width: 0 !important;
+	max-width: none !important;
+	min-height: 58px !important;
+	margin: 0 !important;
+	padding: 10px !important;
+	align-items: center !important;
+	justify-content: center !important;
+	text-align: center !important;
+	white-space: nowrap !important;
+	word-break: keep-all !important;
+	background: transparent !important;
+	border-radius: 0 !important;
+	box-shadow: none !important;
+}
+
+#cbi-samba4-sambashare .cbi-section-table-row::before,
+#cbi-samba4-sambashare .cbi-section-table-row > .td::before,
+#cbi-samba4-sambashare .cbi-section-table-row > [data-title]::before {
+	display: none !important;
+	content: none !important;
+}
+
+#cbi-samba4-sambashare .cbi-section-table-row.placeholder > .td:only-child {
+	grid-column: 1 / -1 !important;
+	width: 100% !important;
+	min-width: 0 !important;
+	max-width: none !important;
+}
+
+#cbi-samba4-sambashare .cbi-section-table-row > .td > div,
+#cbi-samba4-sambashare .cbi-section-actions > div {
+	display: flex !important;
+	box-sizing: border-box !important;
+	min-height: 38px !important;
+	margin: 0 auto !important;
+	align-items: center !important;
+	justify-content: center !important;
+}
+
+#cbi-samba4-sambashare input[type="text"],
+#cbi-samba4-sambashare input[type="password"],
+#cbi-samba4-sambashare input[type="number"],
+#cbi-samba4-sambashare select {
+	max-width: 100% !important;
+	text-align: center !important;
+	text-align-last: center !important;
+}
+
+#cbi-samba4-sambashare .samba-password-control {
+	display: block !important;
+	box-sizing: border-box !important;
+	width: 118px !important;
+	max-width: 118px !important;
+	height: 38px !important;
+	min-height: 38px !important;
+	margin: auto !important;
+}
+
+#cbi-samba4-sambashare .samba-password-control > input {
+	display: block !important;
+	box-sizing: border-box !important;
+	width: 118px !important;
+	height: 38px !important;
+	margin: 0 !important;
+	padding: 5px 8px !important;
+}
+
+@media (max-width: 767px) {
+	body #maincontent #cbi-samba4-sambashare .cbi-section-table,
+	body #maincontent #cbi-samba4-sambashare .cbi-section-thead,
+	body #maincontent #cbi-samba4-sambashare .cbi-section-tbody,
+	body #maincontent #cbi-samba4-sambashare .cbi-section-tfoot,
+	body #maincontent #cbi-samba4-sambashare .cbi-section-table-titles,
+	body #maincontent #cbi-samba4-sambashare .cbi-section-table-row {
+		width: 2590px !important;
+		min-width: 2590px !important;
+		max-width: 2590px !important;
+	}
+
+	body #maincontent #cbi-samba4-sambashare .cbi-section-table-titles,
+	body #maincontent #cbi-samba4-sambashare .cbi-section-table-row {
+		display: grid !important;
+		grid-template-columns: 150px 220px 100px 100px 120px 160px 160px 150px 150px 150px 170px 170px 150px 280px 240px 120px !important;
+		grid-template-rows: 68px !important;
+		grid-auto-rows: 68px !important;
+		height: 68px !important;
+		min-height: 68px !important;
+		max-height: 68px !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		align-items: stretch !important;
+		gap: 0 !important;
+	}
+
+	body #maincontent #cbi-samba4-sambashare .cbi-section-table-row > .td,
+	body #maincontent #cbi-samba4-sambashare .cbi-section-table-titles > .th {
+		display: flex !important;
+		float: none !important;
+		flex-direction: row !important;
+		box-sizing: border-box !important;
+		width: auto !important;
+		min-width: 0 !important;
+		max-width: none !important;
+		height: 68px !important;
+		min-height: 68px !important;
+		max-height: 68px !important;
+		margin: 0 !important;
+		padding: 12px 16px !important;
+		align-items: center !important;
+		justify-content: center !important;
+		white-space: nowrap !important;
+		overflow: hidden !important;
+	}
+
+	body #maincontent #cbi-samba4-sambashare .cbi-section-table-row > .td[data-title] {
+		grid-column: auto !important;
+	}
+
+	body #maincontent #cbi-samba4-sambashare .cbi-section-table-row > .td::before,
+	body #maincontent #cbi-samba4-sambashare .cbi-section-table-row > [data-title]::before {
+		display: none !important;
+		content: none !important;
+	}
+
+	#samba-nvme-storage .cbi-section-table,
+	#samba-nvme-storage .cbi-section-table-titles,
+	#samba-nvme-storage .cbi-section-table-row {
+		width: 1170px !important;
+		min-width: 1170px !important;
+		max-width: 1170px !important;
+	}
+}
+
+@media (prefers-color-scheme: dark) {
+	#cbi-samba4-sambashare {
+		--samba-share-surface: #1e1e1e;
+		--samba-share-head: var(--samba-share-surface);
+		--samba-share-row: #252526;
+	}
+}

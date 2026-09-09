@@ -1,0 +1,48 @@
+name: Verify EdgePi E87N source
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify repository policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n build-e87n.sh
+          bash -n build-both-firmware.sh
+          for name in openclash passwall passwall_server; do
+            test ! -e "files/etc/config/$name"
+            git check-ignore -q "files/etc/config/$name"
+          done
+          test -d package/luci-app-display
+          test -d package/fancontrol
+          test -d package/luci-app-fanctrol
+          test -d package/luci-app-samba4
+          test -d package/samba4
+
+      - name: Test fan controller
+        run: |
+          (cd package/fancontrol/src && go test ./...)
+          for test_file in package/luci-app-fanctrol/tools/test_*.py; do
+            python3 "$test_file"
+          done
+
+      - name: Verify service scripts
+        run: |
+          sh -n package/luci-app-display/root/usr/sbin/display-control
+          sh -n package/luci-app-samba4/root/usr/libexec/samba4-nvme
+          sh -n package/luci-app-samba4/root/usr/libexec/samba4-set-password
+          sh -n package/luci-app-samba4/root/etc/init.d/samba4-nvme
+          sh -n package/luci-app-samba4/root/etc/hotplug.d/block/95-samba4-nvme

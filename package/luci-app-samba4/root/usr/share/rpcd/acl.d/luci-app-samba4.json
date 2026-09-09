@@ -1,0 +1,21 @@
+{
+	"luci-app-samba4": {
+		"description": "Grant access to LuCI app samba4",
+		"read": {
+			"file": {
+				"/etc/samba/smb.conf.template": [ "read" ],
+				"/usr/libexec/samba4-nvme": [ "exec" ],
+				"/usr/sbin/smbd": [ "exec" ]
+			},
+			"uci": [ "samba4" ]
+		},
+		"write": {
+			"file": {
+				"/etc/samba/smb.conf.template": [ "write" ],
+				"/usr/libexec/samba4-nvme": [ "exec" ],
+				"/usr/libexec/samba4-set-password": [ "exec" ]
+			},
+			"uci": [ "samba4" ]
+		}
+	}
+}

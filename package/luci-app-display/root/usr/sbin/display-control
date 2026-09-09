@@ -1,0 +1,617 @@
+#!/bin/sh
+
+BACKLIGHT_DIR="/sys/class/backlight/backlight"
+BL_POWER_PATH="$BACKLIGHT_DIR/bl_power"
+BRIGHTNESS_PATH="$BACKLIGHT_DIR/brightness"
+MAX_BRIGHTNESS_PATH="$BACKLIGHT_DIR/max_brightness"
+DISPLAY_BIN="/usr/sbin/display"
+SNAPSHOT_PATH="/tmp/display-framebuffer.raw"
+CRON_TAG="# luci-app-display"
+
+json_error() {
+	printf '{"ok":false,"message":"%s"}\n' "$1"
+	exit "${2:-1}"
+}
+
+is_uint() {
+	case "$1" in
+		''|*[!0-9]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+get_max_brightness() {
+	local max
+
+	max="$(cat "$MAX_BRIGHTNESS_PATH" 2>/dev/null)"
+	if ! is_uint "$max" || [ "$max" -le 0 ]; then
+		max=26
+	fi
+
+	printf '%s' "$max"
+}
+
+disable_console_cursor() {
+	local tty
+
+	if [ -w /sys/class/graphics/fbcon/cursor_blink ]; then
+		echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null || true
+	fi
+
+	for tty in /dev/tty0 /dev/tty1; do
+		[ -w "$tty" ] || continue
+		printf '\033[?25l' > "$tty" 2>/dev/null || true
+	done
+}
+
+power_on() {
+	disable_console_cursor
+
+	if [ -e "$BL_POWER_PATH" ]; then
+		echo 0 > "$BL_POWER_PATH" 2>/dev/null || return 1
+	fi
+
+	return 0
+}
+
+set_brightness() {
+	local value="$1"
+	local max
+
+	is_uint "$value" || json_error "亮度值无效" 2
+	max="$(get_max_brightness)"
+
+	if [ "$value" -gt "$max" ]; then
+		json_error "亮度值超过设备上限" 2
+	fi
+
+	[ -e "$BRIGHTNESS_PATH" ] || json_error "未找到背光亮度控制路径" 3
+	echo "$value" > "$BRIGHTNESS_PATH" 2>/dev/null || json_error "亮度写入失败" 4
+}
+
+set_screen() {
+	local screen="$1"
+
+	disable_console_cursor
+
+	case "$screen" in
+		1|2|3|4) ;;
+		*) json_error "屏幕编号无效" 2 ;;
+	esac
+
+	[ -x "$DISPLAY_BIN" ] || json_error "未找到屏幕显示程序" 3
+	killall display >/dev/null 2>&1 || true
+	"$DISPLAY_BIN" "$screen" >/dev/null 2>&1 &
+}
+
+persist_screen() {
+	local screen="$1"
+	local saved
+
+	case "$screen" in
+		1|2|3|4) ;;
+		*) json_error "屏幕编号无效" 2 ;;
+	esac
+
+	# Keep persistence and the visible screen change in one RPC operation. Commit
+	# the new value first, start the requested screen immediately, then complete
+	# the blocking flush. The UI can follow fb0 while sync is still finishing,
+	# without weakening the successful-return durability guarantee.
+	uci set display.settings.screen="$screen" || json_error "屏幕设置更新失败" 5
+	uci commit display || json_error "屏幕设置保存失败" 5
+
+	if feature_enabled; then
+		set_screen "$screen"
+	fi
+
+	sync || json_error "屏幕设置同步写入失败" 5
+	saved="$(uci -q get display.settings.screen 2>/dev/null)"
+	[ "$saved" = "$screen" ] || json_error "屏幕设置持久化校验失败" 5
+
+	printf '{"ok":true,"screen":%s}\n' "$screen"
+}
+
+percent_to_brightness() {
+	local percent="$1"
+	local max
+
+	is_uint "$percent" || percent=72
+	if [ "$percent" -gt 100 ]; then
+		percent=100
+	fi
+
+	max="$(get_max_brightness)"
+	# E87N backlight PWM is active-low: raw max is dark, raw 0 is brightest.
+	printf '%s' $(( (max * (100 - percent) + 50) / 100 ))
+}
+
+configured_screen() {
+	local screen
+
+	screen="$(uci -q get display.settings.screen 2>/dev/null)"
+	case "$screen" in
+		1|2|3|4) printf '%s' "$screen" ;;
+		*) printf '1' ;;
+	esac
+}
+
+turn_on() {
+	local percent raw screen
+
+	percent="$(uci -q get display.settings.brightness_percent 2>/dev/null)"
+	raw="$(percent_to_brightness "$percent")"
+	screen="$(configured_screen)"
+
+	power_on || json_error "背光电源启用失败" 4
+	set_brightness "$raw"
+	set_screen "$screen"
+}
+
+turn_off() {
+	local max
+
+	max="$(get_max_brightness)"
+	# Do not change this to zero: full duty is the hardware-off state on E87N.
+	set_brightness "$max"
+}
+
+set_percent() {
+	local percent="$1"
+	local raw
+
+	raw="$(percent_to_brightness "$percent")"
+	power_on || json_error "背光电源启用失败" 4
+	set_brightness "$raw"
+}
+
+valid_time() {
+	case "$1" in
+		[0-2][0-9]:[0-5][0-9]) ;;
+		*) return 1 ;;
+	esac
+
+	[ "${1%:*}" -le 23 ]
+}
+
+cron_bool() {
+	case "$(uci -q get "display.settings.$1" 2>/dev/null)" in
+		1|on|true|yes|enabled) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+feature_enabled() {
+	case "$(uci -q get display.settings.enabled 2>/dev/null)" in
+		0|off|false|no|disabled) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+framebuffer_ready() {
+	[ -c /dev/fb0 ] && [ -r /dev/fb0 ] && \
+		[ -r /sys/class/graphics/fb0/virtual_size ]
+}
+
+display_running() {
+	pidof display >/dev/null 2>&1
+}
+
+restore_display() {
+	local percent raw screen
+
+	framebuffer_ready || return 1
+	percent="$(uci -q get display.settings.brightness_percent 2>/dev/null)"
+	raw="$(percent_to_brightness "$percent")"
+	screen="$(configured_screen)"
+
+	# Keep failures inside this recovery attempt. A temporarily unavailable
+	# framebuffer or backlight must not terminate the long-running monitor.
+	(
+		power_on &&
+		set_brightness "$raw" &&
+		set_screen "$screen"
+	) >/dev/null 2>&1
+}
+
+cleanup_cron() {
+	local crontab="/etc/crontabs/root"
+	local tmp="/tmp/display-control-cron.$$"
+
+	[ -e "$crontab" ] || return 0
+
+	grep -v "$CRON_TAG$" "$crontab" > "$tmp" 2>/dev/null || true
+
+	cat "$tmp" > "$crontab" || {
+		rm -f "$tmp"
+		json_error "旧版 root 定时任务清理失败" 4
+	}
+	rm -f "$tmp"
+
+	/etc/init.d/cron reload >/dev/null 2>&1 || /etc/init.d/cron restart >/dev/null 2>&1 || true
+}
+
+run_due_tasks() {
+	local now on_time off_time slot_time slot_percent idx
+
+	now="$1"
+
+	if cron_bool timer_enabled; then
+		on_time="$(uci -q get display.settings.power_on_time 2>/dev/null)"
+		off_time="$(uci -q get display.settings.power_off_time 2>/dev/null)"
+
+		if cron_bool power_on_enabled && valid_time "${on_time:-07:30}" && [ "$now" = "${on_time:-07:30}" ]; then
+			turn_on >/dev/null 2>&1 || true
+		fi
+
+		if cron_bool power_off_enabled && valid_time "${off_time:-22:00}" && [ "$now" = "${off_time:-22:00}" ]; then
+			turn_off >/dev/null 2>&1 || true
+		fi
+	fi
+
+	if cron_bool brightness_schedule_enabled; then
+		for idx in 2 3; do
+			slot_time="$(uci -q get "display.settings.brightness_slot${idx}_time" 2>/dev/null)"
+			slot_percent="$(uci -q get "display.settings.brightness_slot${idx}_percent" 2>/dev/null)"
+			is_uint "$slot_percent" || slot_percent=50
+
+			if valid_time "$slot_time" && [ "$now" = "$slot_time" ]; then
+				set_percent "$slot_percent" >/dev/null 2>&1 || true
+			fi
+		done
+	fi
+}
+
+daemon_loop() {
+	local now last fb_present last_restart uptime_now
+
+	trap 'exit 0' INT TERM
+	cleanup_cron >/dev/null 2>&1 || true
+	feature_enabled || exit 0
+
+	if framebuffer_ready; then
+		restore_display >/dev/null 2>&1 || true
+		fb_present=1
+	else
+		fb_present=0
+		logger -t display-control 'Framebuffer unavailable; waiting for display device'
+	fi
+
+	last=""
+	last_restart=0
+	while feature_enabled; do
+		now="$(date +%H:%M)"
+		if [ "$now" != "$last" ]; then
+			run_due_tasks "$now"
+			last="$now"
+		fi
+
+		if framebuffer_ready; then
+			uptime_now="$(cut -d. -f1 /proc/uptime 2>/dev/null)"
+			is_uint "$uptime_now" || uptime_now=0
+
+			if [ "$fb_present" != '1' ]; then
+				logger -t display-control 'Framebuffer restored; restarting saved display screen'
+				restore_display >/dev/null 2>&1 || true
+				last_restart="$uptime_now"
+				fb_present=1
+			elif ! display_running && [ $((uptime_now - last_restart)) -ge 5 ]; then
+				logger -t display-control 'Display process stopped; restarting saved display screen'
+				restore_display >/dev/null 2>&1 || true
+				last_restart="$uptime_now"
+			fi
+		elif [ "$fb_present" != '0' ]; then
+			logger -t display-control 'Framebuffer removed; stopping stale display process'
+			killall display >/dev/null 2>&1 || true
+			fb_present=0
+		fi
+
+		# A short interval makes replug recovery perceptibly automatic while the
+		# minute-level power and brightness schedules remain deduplicated above.
+		sleep 2
+	done
+
+	exit 0
+}
+
+reload_service() {
+	cleanup_cron >/dev/null 2>&1 || true
+
+	if feature_enabled; then
+		( sleep 0; /etc/init.d/display-control start ) >/dev/null 2>&1 </dev/null &
+	else
+		( sleep 0; /etc/init.d/display-control stop ) >/dev/null 2>&1 </dev/null &
+	fi
+}
+
+stop_control_daemon() {
+	local pid pidfile="/var/run/display-control.pid"
+
+	if [ -s "$pidfile" ]; then
+		pid="$(cat "$pidfile" 2>/dev/null)"
+		[ -n "$pid" ] && kill "$pid" >/dev/null 2>&1 || true
+		rm -f "$pidfile"
+	fi
+
+	for pid in $(ps w | awk '/\/usr\/sbin\/display-control daemon/ && !/awk/ { print $1 }'); do
+		[ -n "$pid" ] && kill "$pid" >/dev/null 2>&1 || true
+	done
+}
+
+set_feature_enabled() {
+	local enabled="$1"
+
+	uci set display.settings.enabled="$enabled"
+	uci commit display || json_error "屏幕设置保存失败" 5
+	# The UI commits only on a discrete click or after a slider is released.
+	# Flush that single commit before returning so a later power loss does not
+	# leave the user-visible setting only in the kernel page cache.
+	sync
+
+	if [ "$enabled" = '1' ]; then
+		turn_on
+		# Start only after the committed enabled=1 state is authoritative. Avoid
+		# the previous detached reload race where a late stop could overwrite a
+		# newer enable click and leave LuCI reporting "display off" after F5.
+		/etc/init.d/display-control start >/dev/null 2>&1 || true
+	else
+		# Stop the scheduler synchronously before touching the panel so no older
+		# background stop/start operation can win after this click returns.
+		stop_control_daemon
+		turn_off
+		killall display >/dev/null 2>&1 || true
+	fi
+}
+
+bool_value() {
+	case "$1" in
+		1|on|true|yes|enabled) printf '1' ;;
+		*) printf '0' ;;
+	esac
+}
+
+time_value() {
+	local value="$1"
+	local fallback="$2"
+
+	if valid_time "$value"; then
+		printf '%s' "$value"
+	else
+		printf '%s' "$fallback"
+	fi
+}
+
+percent_value() {
+	local value="$1"
+	local fallback="$2"
+
+	is_uint "$value" || value="$fallback"
+	if [ "$value" -gt 100 ]; then
+		value=100
+	fi
+
+	printf '%s' "$value"
+}
+
+save_settings() {
+	local enabled percent screen
+	local timer_enabled power_on_enabled power_on_time power_off_enabled power_off_time
+	local schedule_enabled slot2_time slot2_percent slot3_time slot3_percent
+	local reload_after="${14:-1}"
+
+	enabled="$(bool_value "$1")"
+	percent="$(percent_value "$2" 72)"
+	screen="$3"
+	case "$screen" in
+		1|2|3|4) ;;
+		*) screen=1 ;;
+	esac
+
+	timer_enabled="$(bool_value "$4")"
+	power_on_enabled="$(bool_value "$5")"
+	power_on_time="$(time_value "$6" "07:30")"
+	power_off_enabled="$(bool_value "$7")"
+	power_off_time="$(time_value "$8" "22:00")"
+	schedule_enabled="$(bool_value "$9")"
+	slot2_time="$(time_value "${10}" "08:30")"
+	slot2_percent="$(percent_value "${11}" 80)"
+	slot3_time="$(time_value "${12}" "21:30")"
+	slot3_percent="$(percent_value "${13}" 10)"
+
+	uci set display.settings.enabled="$enabled"
+	uci set display.settings.brightness_percent="$percent"
+	uci set display.settings.screen="$screen"
+	uci set display.settings.timer_enabled="$timer_enabled"
+	uci set display.settings.power_on_enabled="$power_on_enabled"
+	uci set display.settings.power_on_time="$power_on_time"
+	uci set display.settings.power_off_enabled="$power_off_enabled"
+	uci set display.settings.power_off_time="$power_off_time"
+	uci set display.settings.brightness_schedule_enabled="$schedule_enabled"
+	# Remove the retired morning slot from upgrades as well as fresh installs.
+	uci -q delete display.settings.brightness_slot1_time
+	uci -q delete display.settings.brightness_slot1_percent
+	uci set display.settings.brightness_slot2_time="$slot2_time"
+	uci set display.settings.brightness_slot2_percent="$slot2_percent"
+	uci set display.settings.brightness_slot3_time="$slot3_time"
+	uci set display.settings.brightness_slot3_percent="$slot3_percent"
+	uci commit display || json_error "屏幕设置保存失败" 5
+	# Slider input events never reach this path; one release produces one
+	# durable UCI commit and one filesystem flush.
+	sync
+	[ "$reload_after" = '0' ] || reload_service
+}
+
+fb_geometry() {
+	local virtual_size fb_width fb_height fb_bpp fb_stride
+
+	virtual_size="$(cat /sys/class/graphics/fb0/virtual_size 2>/dev/null)"
+	case "$virtual_size" in
+		*,*)
+			fb_width="${virtual_size%,*}"
+			fb_height="${virtual_size#*,}"
+			;;
+		*)
+			fb_width=428
+			fb_height=142
+			;;
+	esac
+	is_uint "$fb_width" || fb_width=428
+	is_uint "$fb_height" || fb_height=142
+
+	fb_bpp="$(cat /sys/class/graphics/fb0/bits_per_pixel 2>/dev/null)"
+	is_uint "$fb_bpp" || fb_bpp=16
+	fb_stride="$(cat /sys/class/graphics/fb0/stride 2>/dev/null)"
+	if ! is_uint "$fb_stride" || [ "$fb_stride" -le 0 ]; then
+		fb_stride=$(( fb_width * ((fb_bpp + 7) / 8) ))
+	fi
+
+	printf '%s %s %s %s\n' "$fb_width" "$fb_height" "$fb_bpp" "$fb_stride"
+}
+
+frame() {
+	local fb_width fb_height fb_bpp fb_stride frame_bytes
+
+	set -- $(fb_geometry)
+	fb_width="$1"
+	fb_height="$2"
+	fb_bpp="$3"
+	fb_stride="$4"
+	frame_bytes=$(( fb_stride * fb_height ))
+
+	[ -r /dev/fb0 ] || exit 3
+	dd if=/dev/fb0 bs="$frame_bytes" count=1 2>/dev/null
+}
+
+frame_snapshot() {
+	local fb_width fb_height fb_bpp fb_stride frame_bytes snapshot_bytes
+	local snapshot_tmp="${SNAPSHOT_PATH}.$$"
+
+	set -- $(fb_geometry)
+	fb_width="$1"
+	fb_height="$2"
+	fb_bpp="$3"
+	fb_stride="$4"
+	frame_bytes=$(( fb_stride * fb_height ))
+
+	[ -r /dev/fb0 ] || json_error "帧缓冲设备不可读" 3
+	dd if=/dev/fb0 of="$snapshot_tmp" bs="$frame_bytes" count=1 2>/dev/null || {
+		rm -f "$snapshot_tmp"
+		json_error "帧缓冲画面抓取失败" 4
+	}
+
+	snapshot_bytes="$(wc -c < "$snapshot_tmp" 2>/dev/null)"
+	if [ "$snapshot_bytes" != "$frame_bytes" ]; then
+		rm -f "$snapshot_tmp"
+		json_error "帧缓冲快照不完整" 4
+	fi
+
+	chmod 0644 "$snapshot_tmp" 2>/dev/null || true
+	mv -f "$snapshot_tmp" "$SNAPSHOT_PATH" || {
+		rm -f "$snapshot_tmp"
+		json_error "帧缓冲快照发布失败" 4
+	}
+
+	printf '{"ok":true,"path":"%s","bytes":%s}\n' "$SNAPSHOT_PATH" "$frame_bytes"
+}
+
+status() {
+	local max brightness screen enabled fb_width fb_height fb_bpp fb_stride
+
+	max="$(get_max_brightness)"
+	brightness="$(cat "$BRIGHTNESS_PATH" 2>/dev/null)"
+	if ! is_uint "$brightness"; then
+		brightness="$max"
+	fi
+
+	screen="$(uci -q get display.settings.screen 2>/dev/null)"
+	case "$screen" in
+		1|2|3|4) ;;
+		*) screen=1 ;;
+	esac
+
+	feature_enabled && enabled=1 || enabled=0
+
+	set -- $(fb_geometry)
+	fb_width="$1"
+	fb_height="$2"
+	fb_bpp="$3"
+	fb_stride="$4"
+
+	printf '{"ok":true,"enabled":%s,"max_brightness":%s,"brightness":%s,"screen":%s,"fb_width":%s,"fb_height":%s,"fb_bpp":%s,"fb_stride":%s}\n' \
+		"$enabled" "$max" "$brightness" "$screen" "$fb_width" "$fb_height" "$fb_bpp" "$fb_stride"
+}
+
+case "$1" in
+	init)
+		power_on || json_error "背光电源启用失败" 4
+		printf '{"ok":true}\n'
+		;;
+	status)
+		status
+		;;
+	frame)
+		frame
+		;;
+	frame-snapshot)
+		frame_snapshot
+		;;
+	brightness)
+		power_on || json_error "背光电源启用失败" 4
+		set_brightness "$2"
+		printf '{"ok":true}\n'
+		;;
+	screen)
+		set_screen "$2"
+		printf '{"ok":true}\n'
+		;;
+	screen-persist)
+		persist_screen "$2"
+		;;
+	apply)
+		power_on || json_error "背光电源启用失败" 4
+		set_brightness "$2"
+		set_screen "$3"
+		printf '{"ok":true}\n'
+		;;
+	on)
+		turn_on
+		printf '{"ok":true}\n'
+		;;
+	off)
+		turn_off
+		printf '{"ok":true}\n'
+		;;
+	brightness-percent)
+		set_percent "$2"
+		printf '{"ok":true}\n'
+		;;
+	daemon)
+		daemon_loop
+		;;
+	enable)
+		set_feature_enabled 1
+		printf '{"ok":true}\n'
+		;;
+	disable)
+		set_feature_enabled 0
+		printf '{"ok":true}\n'
+		;;
+	save)
+		save_settings "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" "${12}" "${13}" "${14}" 1
+		printf '{"ok":true}\n'
+		;;
+	persist)
+		save_settings "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" "${12}" "${13}" "${14}" 0
+		printf '{"ok":true}\n'
+		;;
+	reload)
+		reload_service
+		printf '{"ok":true}\n'
+		;;
+	cleanup-cron)
+		cleanup_cron
+		printf '{"ok":true}\n'
+		;;
+	*)
+		json_error "用法：display-control init|status|frame|frame-snapshot|brightness <0-max>|brightness-percent <0-100>|screen <1-4>|screen-persist <1-4>|apply <0-max> <1-4>|on|off|daemon|enable|disable|save|persist|reload|cleanup-cron" 1
+		;;
+esac

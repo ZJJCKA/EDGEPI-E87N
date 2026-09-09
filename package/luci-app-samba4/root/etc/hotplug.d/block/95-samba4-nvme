@@ -1,0 +1,3 @@
+#!/bin/sh
+
+case "${DEVNAME-}" in nvme*) /usr/libexec/samba4-nvme reconcile >/dev/null 2>&1 &;; esac

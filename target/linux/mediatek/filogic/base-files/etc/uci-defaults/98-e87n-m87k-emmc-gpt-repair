@@ -1,0 +1,75 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+case "$(board_name)" in
+	edgepi,e87n|mangopi,m87k) ;;
+	*) exit 0 ;;
+esac
+
+# Check only the eMMC used by these two boards.  No partition number, disk
+# capacity or fixed final LBA is assumed, because E87N and M87K layouts differ.
+disk=/dev/mmcblk0
+sgdisk=/usr/bin/sgdisk
+verify_log=/tmp/emmc-gpt-verify.log
+repair_log=/tmp/emmc-gpt-repair.log
+
+log_gpt() {
+	logger -t emmc-gpt "$*"
+}
+
+remove_tool() {
+	rm -f "$verify_log" "$repair_log" "$sgdisk"
+}
+
+if [ ! -b "$disk" ] || [ ! -x "$sgdisk" ]; then
+	log_gpt "跳过：eMMC 或 sgdisk 不可用"
+	remove_tool
+	exit 0
+fi
+
+"$sgdisk" -v "$disk" >"$verify_log" 2>&1 || true
+if grep -q 'No problems found' "$verify_log"; then
+	log_gpt "通过：GPT 结构一致"
+	remove_tool
+	exit 0
+fi
+
+log_gpt "检测到 GPT 问题，正在修复备份 GPT 元数据"
+if "$sgdisk" -e "$disk" >"$repair_log" 2>&1; then
+	"$sgdisk" -v "$disk" >"$verify_log" 2>&1 || true
+	if grep -q 'No problems found' "$verify_log"; then
+		log_gpt "修复完成并通过校验"
+	elif grep -q "main GPT header's current LBA pointer" "$verify_log"; then
+		# Rebuild only the final backup entry array and header from the valid
+		# primary GPT when -e cannot correct this exact reciprocal pointer fault.
+		sectors="$(cat /sys/class/block/mmcblk0/size 2>/dev/null)"
+		case "$sectors" in ''|*[!0-9]*|0|1) sectors=0;; esac
+		if [ "$sectors" -gt 67 ]; then
+			backup_start=$((sectors - 33))
+			dd if="$disk" of=/tmp/emmc-gpt-backup.before bs=512 \
+				skip="$backup_start" count=33 2>/dev/null
+			dd if=/dev/zero of="$disk" bs=512 seek="$backup_start" \
+				count=33 conv=notrunc 2>/dev/null
+			sync
+			"$sgdisk" -e "$disk" >>"$repair_log" 2>&1 || true
+			"$sgdisk" -v "$disk" >"$verify_log" 2>&1 || true
+			if grep -q 'No problems found' "$verify_log"; then
+				log_gpt "备份 GPT 已重建并通过校验"
+				rm -f /tmp/emmc-gpt-backup.before
+			else
+				log_gpt "备份 GPT 重建后校验失败"
+			fi
+		else
+			log_gpt "停止修复：eMMC 扇区数量无效"
+		fi
+	else
+		log_gpt "修复命令已完成，但复核未通过"
+	fi
+else
+	log_gpt "GPT 修复命令执行失败"
+fi
+
+# This image intentionally provides sgdisk only for the one-shot check.
+remove_tool
+exit 0

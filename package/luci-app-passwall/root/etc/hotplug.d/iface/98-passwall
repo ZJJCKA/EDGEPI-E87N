@@ -1,0 +1,42 @@
+#!/bin/sh
+
+. /usr/share/passwall/utils.sh
+
+[ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifupdate" ] || exit 0
+
+([ "$(get_cache_var "ENABLED_DEFAULT_ACL")" = "1" ] || [ "$(get_cache_var "ENABLED_ACLS")" = "1" ]) && [ -f ${LOCK_PATH}/${CONFIG}_ready.lock ] && {
+
+	default_device=$(ip route show default 2>/dev/null | awk -F 'dev ' '{print $2}' | awk '{print $1}' | head -n1)
+	default6_device=$(ip -6 route show default 2>/dev/null | awk -F 'dev ' '{print $2}' | awk '{print $1}' | head -n1)
+	( [ "$default_device" = "$DEVICE" ] || [ "$default6_device" = "$DEVICE" ] ) && {
+
+		if [ "$ACTION" = "ifupdate" ]; then
+			USE_TABLES=$(get_cache_var "USE_TABLES")
+			[ -n "$USE_TABLES" ] && { ${APP_PATH}/${USE_TABLES}.sh update_wan_sets >/dev/null 2>&1 & }
+			exit 0
+		fi
+
+		current_route="$(ip -4 route show default 2>/dev/null | head -n1)|$(ip -6 route show default 2>/dev/null | head -n1)"
+		active_route="$(get_cache_var "ACTIVE_DEFAULT_ROUTE")"
+		if [ -n "$active_route" ] && [ "$current_route" = "$active_route" ]; then
+			USE_TABLES=$(get_cache_var "USE_TABLES")
+			[ -n "$USE_TABLES" ] && ${APP_PATH}/${USE_TABLES}.sh update_wan_sets >/dev/null 2>&1 &
+			logger -p notice -t network "${CONFIG}: WAN route unchanged; skipped redundant restart"
+			exit 0
+		fi
+
+		[ -d "${LOCK_PATH}" ] || mkdir -p "${LOCK_PATH}"
+		DEBOUNCE_EVENT="${LOCK_PATH}/${CONFIG}_ifup_debounce.event"
+		DEBOUNCE_LOCK="${LOCK_PATH}/${CONFIG}_ifup_debounce.lock"
+		exec 8>"${DEBOUNCE_LOCK}" || exit 0
+		flock -n 8 || exit 0
+		(
+			sleep 4
+			now_route="$(ip -4 route show default 2>/dev/null | head -n1)|$(ip -6 route show default 2>/dev/null | head -n1)"
+			old_route="$(get_cache_var "ACTIVE_DEFAULT_ROUTE")"
+			[ -n "$old_route" ] && [ "$now_route" = "$old_route" ] && exit 0
+			/etc/init.d/${CONFIG} restart >/dev/null 2>&1
+			logger -p notice -t network "${CONFIG}: restarted after WAN route change"
+		) >/dev/null 2>&1 &
+	}
+}

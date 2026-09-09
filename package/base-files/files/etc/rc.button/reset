@@ -1,0 +1,36 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+OVERLAY="$( grep ' /overlay ' /proc/mounts )"
+RESET_HOLD_SECONDS=5
+
+# E87N requires an intentional eight-second hold. Keep the established
+# five-second reset threshold unchanged on every other board.
+[ "$(board_name)" = 'edgepi,e87n' ] && RESET_HOLD_SECONDS=8
+
+case "$ACTION" in
+pressed)
+	[ -z "$OVERLAY" ] && return 0
+
+	return "$RESET_HOLD_SECONDS"
+;;
+timeout)
+	. /etc/diag.sh
+	set_state failsafe
+;;
+released)
+	if [ "$SEEN" -lt 1 ]
+	then
+		echo "REBOOT" > /dev/console
+		sync
+		reboot
+	elif [ "$SEEN" -ge "$RESET_HOLD_SECONDS" -a -n "$OVERLAY" ]
+	then
+		echo "FACTORY RESET" > /dev/console
+		factoryreset -y && reboot &
+	fi
+;;
+esac
+
+return 0

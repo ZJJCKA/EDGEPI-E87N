@@ -1,0 +1,8 @@
+#!/bin/sh
+
+[ "$(board_name 2>/dev/null)" = "mangopi,m87k" ] || exit 0
+
+/etc/init.d/m87k-net-led enable
+/etc/init.d/m87k-net-led restart
+
+exit 0

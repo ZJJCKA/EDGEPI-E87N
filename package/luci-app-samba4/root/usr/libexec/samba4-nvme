@@ -1,0 +1,420 @@
+#!/bin/sh
+# E87N/M87K physical-slot NVMe manager for luci-app-samba4.
+# Linux nvmeX numbering is deliberately never used as a slot identity.
+# jshn creates a number of variables lazily and is not compatible with a global
+# `set -u`.  Keep an explicit default namespace, but do not enable nounset.
+JSON_PREFIX=''
+. /usr/share/libubox/jshn.sh
+
+log() { logger -t samba4-nvme -- "$*"; }
+die() { printf '%s\n' "$*" >&2; exit 1; }
+manager_error() { die "【NVMe管理】$*"; }
+slot_error() { slot=$1; shift; die "【NVMe${slot#nvme}】$*"; }
+
+samba_running() {
+	# Do not depend on optional procps pgrep behaviour.  BusyBox and procps
+	# variants differ in their handling of -x, while /proc/comm is stable.
+	for comm in /proc/[0-9]*/comm; do
+		[ -r "$comm" ] || continue
+		case "$(cat "$comm" 2>/dev/null)" in
+			smbd|samba) return 0;;
+		esac
+	done
+	return 1
+}
+
+network_ready() {
+	ip -4 address show dev br-lan 2>/dev/null | grep -q 'inet ' &&
+		[ "$(cat /sys/class/net/br-lan/carrier 2>/dev/null)" = "1" ]
+}
+
+samba_stop() {
+	/etc/init.d/samba4 stop >/dev/null 2>&1 || true
+}
+
+samba_restart() {
+	# Persist mounts and shares during early block hotplug, but leave normal
+	# boot ownership to samba4's procd service. Interactive operations restart
+	# the same native service once the LAN interface owns an IPv4 address.
+	if ! network_ready; then
+		log 'LAN is not ready; Samba start deferred to interface hotplug'
+		return 0
+	fi
+	# An Apply operation may already have stopped Samba after the user removed
+	# its UCI sections.  Use an idempotent stop followed by a fresh start rather
+	# than relying on the rc.common restart return value in that state.
+	samba_stop
+	/etc/init.d/samba4 start \
+		>/tmp/samba4-nvme-start.log 2>&1 || {
+		log 'Samba 启动命令失败；详情见 /tmp/samba4-nvme-start.log'
+		return 1
+	}
+	i=0
+	while ! samba_running; do
+		i=$((i + 1))
+		if [ "$i" -ge 20 ]; then
+			log 'Samba process did not appear within 20 seconds'
+			return 1
+		fi
+		sleep 1
+	done
+	[ ! -x /etc/init.d/wsdd2 ] || /etc/init.d/wsdd2 restart >/dev/null 2>&1 || true
+}
+
+valid_slot() {
+	case "${1-}" in nvme0|nvme1) return 0;; *) return 1;; esac
+}
+
+slot_controller() {
+	board=$(cat /tmp/sysinfo/board_name 2>/dev/null)
+	case "$board:$1" in
+		# E87N: right slot is PCI domain 0000, left is domain 0001.
+		edgepi,e87n:nvme0) printf '%s\n' 11280000.pcie;;
+		edgepi,e87n:nvme1) printf '%s\n' 11290000.pcie;;
+		# M87K is physically crossed relative to E87N.  These values come from
+		# the real machine, not from the volatile Linux nvmeX enumeration.
+		mangopi,m87k:nvme0) printf '%s\n' 11290000.pcie;;
+		mangopi,m87k:nvme1) printf '%s\n' 11280000.pcie;;
+		*)
+			# Generic devices have no known chassis left/right definition.  Keep
+			# their identity stable by sorting the immutable sysfs controller
+			# paths instead of relying on the boot-dependent Linux nvmeX number.
+			index=1
+			[ "$1" = nvme1 ] && index=2
+			for ctrl in /sys/class/nvme/nvme*; do
+				[ -e "$ctrl" ] || continue
+				readlink -f "$ctrl/device"
+			done | sort | sed -n "${index}p"
+			;;
+	esac
+}
+
+slot_side() {
+	board=$(cat /tmp/sysinfo/board_name 2>/dev/null)
+	case "$board:$1" in
+		edgepi,e87n:nvme0|mangopi,m87k:nvme0) printf '%s\n' right;;
+		edgepi,e87n:nvme1|mangopi,m87k:nvme1) printf '%s\n' left;;
+		*) printf '%s\n' '';;
+	esac
+}
+
+discover_controller() {
+	needle=$(slot_controller "$1")
+	[ -n "$needle" ] || return 1
+	for ctrl in /sys/class/nvme/nvme*; do
+		[ -e "$ctrl" ] || continue
+		path=$(readlink -f "$ctrl/device")
+		case "$needle" in
+			/*) [ "$path" = "$needle" ] && { basename "$ctrl"; return 0; };;
+			*) case "$path" in *"/$needle/"*) basename "$ctrl"; return 0;; esac;;
+		esac
+	done
+	return 1
+}
+
+discover_disk() {
+	ctrl=$(discover_controller "$1") || return 1
+	for node in /sys/class/block/"$ctrl"n*; do
+		[ -e "$node" ] || continue
+		name=$(basename "$node")
+		case "$name" in *p[0-9]*) continue;; esac
+		printf '/dev/%s\n' "$name"
+		return 0
+	done
+	return 1
+}
+
+data_device() {
+	disk=$1
+	for part in /sys/class/block/"${disk#/dev/}"p*; do
+		[ -e "$part" ] || continue
+		printf '/dev/%s\n' "$(basename "$part")"
+		return 0
+	done
+	printf '%s\n' "$disk"
+}
+
+block_value() {
+	line=$(block info "$1" 2>/dev/null || true)
+	printf '%s\n' "$line" | sed -n "s/.*$2=\"\([^\"]*\)\".*/\1/p"
+}
+
+mountpoint_for() {
+	awk -v dev="$1" '$1 == dev { print $2; exit }' /proc/self/mounts
+}
+
+content_state() {
+	dev=$1
+	fstype=$2
+	mp=$(mountpoint_for "$dev")
+	temporary=0
+	if [ -z "$mp" ] && [ -n "$fstype" ]; then
+		mp="/tmp/samba4-nvme-scan.$$"
+		mkdir -p "$mp"
+		case "$fstype" in
+			ext4) mount -t ext4 -o ro,noload "$dev" "$mp" 2>/dev/null;;
+			ntfs|ntfs3) mount -t ntfs3 -o ro "$dev" "$mp" 2>/dev/null;;
+			*) mount -o ro "$dev" "$mp" 2>/dev/null;;
+		esac
+		if mountpoint_for "$dev" | grep -qx "$mp"; then
+			temporary=1
+		else
+			rmdir "$mp" 2>/dev/null || true
+			printf '%s\n' unknown
+			return
+		fi
+	fi
+	if [ -z "$mp" ] || [ ! -d "$mp" ] || [ ! -r "$mp" ]; then
+		state=unknown
+	else
+		state=no
+		# Use shell pathname expansion instead of optional BusyBox find
+		# predicates.  An unsupported predicate or an inaccessible path must
+		# never be misreported as an empty disk before a destructive format.
+		for entry in "$mp"/* "$mp"/.[!.]* "$mp"/..?*; do
+			[ -e "$entry" ] || [ -L "$entry" ] || continue
+			[ "${entry##*/}" = lost+found ] && continue
+			state=yes
+			break
+		done
+	fi
+	printf '%s\n' "$state"
+	if [ "$temporary" = 1 ]; then
+		umount "$mp" 2>/dev/null || true
+		rmdir "$mp" 2>/dev/null || true
+	fi
+}
+
+add_slot_json() {
+	slot=$1
+	controller=$(slot_controller "$slot")
+	side=$(slot_side "$slot")
+	json_add_object ""
+	json_add_string slot "$slot"
+	json_add_string side "$side"
+	json_add_string controller "$controller"
+	if ctrl=$(discover_controller "$slot"); then
+		model=$(cat "/sys/class/nvme/$ctrl/model" 2>/dev/null | sed 's/[[:space:]]*$//')
+		serial=$(cat "/sys/class/nvme/$ctrl/serial" 2>/dev/null | sed 's/[[:space:]]*$//')
+		json_add_boolean present 1
+		json_add_string linux_controller "$ctrl"
+		json_add_string model "$model"
+		json_add_string serial "$serial"
+		if ! disk=$(discover_disk "$slot"); then
+			# Some failed or unsupported devices (for example the current Optane)
+			# enumerate as an NVMe PCI controller but expose no block namespace.
+			# Report that exact state and never offer destructive operations.
+			json_add_boolean usable 0
+			json_add_string state no_namespace
+			json_close_object
+			return
+		fi
+		dev=$(data_device "$disk")
+		fstype=$(block_value "$dev" TYPE)
+		uuid=$(block_value "$dev" UUID)
+		label=$(block_value "$dev" LABEL)
+		mp=$(mountpoint_for "$dev")
+		sectors=$(cat "/sys/class/block/${disk#/dev/}/size" 2>/dev/null || echo 0)
+		bytes=$((sectors * 512))
+		json_add_boolean usable 1
+		json_add_string disk "$disk"
+		json_add_string device "$dev"
+		json_add_int bytes "$bytes"
+		json_add_string fstype "$fstype"
+		json_add_string uuid "$uuid"
+		json_add_string label "$label"
+		json_add_string mountpoint "$mp"
+		json_add_string content "$(content_state "$dev" "$fstype")"
+		[ "$fstype" = ext4 ] && json_add_boolean recommended 1 || json_add_boolean recommended 0
+	else
+		json_add_boolean present 0
+		json_add_boolean usable 0
+		json_add_string state absent
+	fi
+	json_close_object
+}
+
+scan() {
+	json_init
+	json_add_array slots
+	add_slot_json nvme0
+	add_slot_json nvme1
+	json_close_array
+	json_dump
+}
+
+remove_share() {
+	slot=$1
+	uci -q delete "samba4.$slot"
+	uci commit samba4
+}
+
+install_share() {
+	slot=$1
+	path="/mnt/$slot"
+	if ! uci -q show samba4 | grep -q '=samba$'; then
+		uci -q set samba4.global=samba
+		uci -q set samba4.global.workgroup=WORKGROUP
+		uci -q set samba4.global.charset=UTF-8
+		uci -q set 'samba4.global.description=Samba on OpenWrt'
+		uci -q set samba4.global.disable_netbios=0
+	fi
+	uci set "samba4.$slot=sambashare"
+	uci set "samba4.$slot.name=NVMe${slot#nvme}"
+	uci set "samba4.$slot.path=$path"
+	uci set "samba4.$slot.browseable=yes"
+	uci set "samba4.$slot.read_only=no"
+	uci set "samba4.$slot.force_root=yes"
+	uci set "samba4.$slot.users=root"
+	uci set "samba4.$slot.guest_ok=no"
+	uci set "samba4.$slot.guest_only=no"
+	uci set "samba4.$slot.create_mask=0666"
+	uci set "samba4.$slot.dir_mask=0777"
+	uci commit samba4
+}
+
+mount_slot() {
+	slot=$1
+	valid_slot "$slot" || manager_error '无效的物理槽位'
+	disk=$(discover_disk "$slot") || slot_error "$slot" '未检测到硬盘'
+	dev=$(data_device "$disk")
+	fstype=$(block_value "$dev" TYPE)
+	uuid=$(block_value "$dev" UUID)
+	[ "$fstype" = ext4 ] || slot_error "$slot" '当前文件系统不是 ext4，不能直接挂载并共享'
+	[ -n "$uuid" ] || slot_error "$slot" '未取得文件系统 UUID'
+	target="/mnt/$slot"
+	mkdir -p "$target"
+	current=$(mountpoint_for "$dev")
+	if [ -n "$current" ] && [ "$current" != "$target" ]; then
+		umount "$dev" || slot_error "$slot" "无法从 $current 卸载 $dev"
+	fi
+	# Remove the one-off legacy mount created during development. The managed
+	# slot entry below is the sole owner of this physical drive from now on.
+	uci -q delete fstab.nvme_right
+	uci -q delete fstab.nvme_left
+	uci -q delete "fstab.samba_$slot"
+	uci set "fstab.samba_$slot=mount"
+	uci set "fstab.samba_$slot.uuid=$uuid"
+	uci set "fstab.samba_$slot.target=$target"
+	uci set "fstab.samba_$slot.fstype=ext4"
+	uci set "fstab.samba_$slot.options=rw,noatime"
+	uci set "fstab.samba_$slot.enabled=1"
+	uci set "fstab.samba_$slot.enabled_fsck=1"
+	uci commit fstab
+	block mount >/dev/null 2>&1 || true
+	awk -v dev="$dev" -v mp="$target" '$1 == dev && $2 == mp { ok=1 } END { exit !ok }' /proc/self/mounts || slot_error "$slot" "无法将 $dev 挂载到 $target"
+	install_share "$slot"
+	[ "${SAMBA4_NVME_DEFER_RESTART:-0}" = 1 ] || \
+		samba_restart || slot_error "$slot" 'Samba 服务重启失败'
+	log "$slot mounted from $dev and shared as NVMe${slot#nvme}"
+}
+
+remove_generic_mount_dirs() {
+	# blockd's anonymous mounts use Linux device names.  They are unstable across
+	# boots and must never coexist with the board-slot paths managed here.
+	for node in /sys/class/block/nvme*n* /sys/class/block/nvme*n*p*; do
+		[ -e "$node" ] || continue
+		rmdir "/mnt/$(basename "$node")" 2>/dev/null || true
+	done
+}
+
+quarantine_slot() {
+	# Preserve an existing non-ext4 filesystem and its data, but claim its UUID
+	# in fstab as disabled so blockd cannot anonymously mount it under a volatile
+	# /mnt/nvmeXnY[pZ] name.  LuCI can still inspect it and offer explicit format.
+	slot=$1
+	disk=$(discover_disk "$slot") || return 0
+	dev=$(data_device "$disk")
+	fstype=$(block_value "$dev" TYPE)
+	uuid=$(block_value "$dev" UUID)
+	target="/mnt/$slot"
+	current=$(mountpoint_for "$dev")
+	if [ -n "$current" ] && [ "$current" != "$target" ]; then
+		umount "$dev" || slot_error "$slot" "无法释放匿名挂载 $current"
+	fi
+	remove_share "$slot"
+	uci -q delete "fstab.samba_$slot"
+	if [ -n "$uuid" ]; then
+		uci set "fstab.samba_$slot=mount"
+		uci set "fstab.samba_$slot.uuid=$uuid"
+		uci set "fstab.samba_$slot.target=$target"
+		[ -n "$fstype" ] && uci set "fstab.samba_$slot.fstype=$fstype"
+		uci set "fstab.samba_$slot.enabled=0"
+		uci set "fstab.samba_$slot.enabled_fsck=0"
+	fi
+	uci commit fstab
+	remove_generic_mount_dirs
+	log "$slot detected as ${fstype:-unformatted}; data preserved and automatic mount blocked pending user action"
+}
+
+format_slot() {
+	slot=$1
+	confirmation=${2-}
+	valid_slot "$slot" || manager_error '无效的物理槽位'
+	[ "$confirmation" = "CONFIRM_NVME${slot#nvme}" ] || slot_error "$slot" '二次确认校验失败，已取消格式化'
+	controller=$(slot_controller "$slot")
+	ctrl=$(discover_controller "$slot") || slot_error "$slot" '未检测到 NVMe 控制器'
+	disk=$(discover_disk "$slot") || slot_error "$slot" '未检测到可用命名空间'
+	before_path=$(readlink -f "/sys/class/nvme/$ctrl/device")
+	case "$before_path" in *"/$controller/"*) :;; *) slot_error "$slot" '物理槽位校验失败，已中止操作';; esac
+	serial=$(cat "/sys/class/nvme/$ctrl/serial" 2>/dev/null)
+	# Stop publishing the path and disable its persistent mount before unmounting.
+	# Otherwise blockd can remount the partition between umount and mkfs.
+	remove_share "$slot"
+	samba_stop
+	if uci -q get "fstab.samba_$slot" >/dev/null; then
+		uci set "fstab.samba_$slot.enabled=0"
+		uci commit fstab
+	fi
+	for mounted in "$disk" "${disk}"p*; do
+		[ -e "$mounted" ] || continue
+		mp=$(mountpoint_for "$mounted")
+		[ -z "$mp" ] || umount "$mp" 2>/dev/null || true
+		umount "$mounted" 2>/dev/null || true
+	done
+	if awk -v disk="$disk" '$1 == disk || index($1, disk "p") == 1 { found=1 } END { exit !found }' /proc/self/mounts; then
+		slot_error "$slot" '卸载失败，分区仍在使用中，未执行格式化'
+	fi
+	printf 'g\nn\n1\n\n\nY\nw\n' | fdisk "$disk" >/tmp/samba4-nvme-fdisk.log 2>&1 || slot_error "$slot" '重新分区失败，详细信息已写入 /tmp/samba4-nvme-fdisk.log'
+	part="${disk}p1"
+	i=0
+	while [ ! -b "$part" ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+	[ -b "$part" ] || slot_error "$slot" '新分区未出现，已中止格式化'
+	ctrl_now=$(discover_controller "$slot") || slot_error "$slot" '格式化期间 NVMe 设备消失'
+	[ "$(cat "/sys/class/nvme/$ctrl_now/serial" 2>/dev/null)" = "$serial" ] || slot_error "$slot" '格式化期间硬盘身份发生变化，已中止操作'
+	mkfs.ext4 -F -L "NVME${slot#nvme}" -m 0 "$part" >/tmp/samba4-nvme-mkfs.log 2>&1 || slot_error "$slot" '创建 ext4 文件系统失败，详细信息已写入 /tmp/samba4-nvme-mkfs.log'
+	sync
+	mount_slot "$slot"
+}
+
+reconcile() {
+	lock=/tmp/samba4-nvme-reconcile.lock
+	if ! mkdir "$lock" 2>/dev/null; then
+		return 0
+	fi
+	trap 'rmdir "$lock" 2>/dev/null' EXIT INT TERM
+	for slot in nvme0 nvme1; do
+		if disk=$(discover_disk "$slot"); then
+			dev=$(data_device "$disk")
+			if [ "$(block_value "$dev" TYPE)" = ext4 ]; then
+				SAMBA4_NVME_DEFER_RESTART=1 mount_slot "$slot" >/dev/null 2>&1 || true
+			else
+				quarantine_slot "$slot" >/dev/null 2>&1 || true
+			fi
+		else
+			remove_share "$slot"
+		fi
+	done
+	remove_generic_mount_dirs
+	if samba_running; then
+		samba_restart || manager_error 'Samba 服务重启失败'
+	fi
+}
+
+case "${1-scan}" in
+	scan) scan;;
+	mount) mount_slot "${2-}";;
+	format) format_slot "${2-}" "${3-}";;
+	reconcile) reconcile;;
+	*) manager_error '不支持的操作';;
+esac

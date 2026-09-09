@@ -1,0 +1,40 @@
+From: OpenWrt local build <root@localhost>
+Date: Thu, 27 Aug 2026 00:00:00 +0800
+Subject: [PATCH] net: phy: mediatek: add E87N single-output LED mode
+
+The E87N jack connects both LED colours to LED0 of the internal MT7987
+PHY.  Configure that output for link at every supported speed and activity,
+using the standard MediaTek LED timing.  Keep this board-specific because
+other MT7987 boards wire their LEDs differently.
+
+--- a/drivers/net/phy/mediatek/mtk-2p5ge.c
++++ b/drivers/net/phy/mediatek/mtk-2p5ge.c
+@@ -473,6 +473,28 @@ static int mt798x_2p5ge_phy_config_init(
+ 	phy_set_bits_mmd(phydev, MDIO_MMD_VEND2, MTK_PHY_LED1_ON_CTRL,
+ 			 MTK_PHY_LED_ON_FDX | MTK_PHY_LED_ON_HDX);
+ 
++	if (device_property_read_bool(&phydev->mdio.dev,
++				      "mediatek,e87n-led-mode")) {
++		/* Visually matched to the RTL8221 60 ms / 50% cadence. */
++		phy_write_mmd(phydev, MDIO_MMD_VEND2, 0x22, 0x0200);
++		phy_write_mmd(phydev, MDIO_MMD_VEND2, 0x23, 0x0400);
++
++		/* LED0 only: link at all speeds, active low, no link-down. */
++		phy_write_mmd(phydev, MDIO_MMD_VEND2,
++			      MTK_PHY_LED0_ON_CTRL,
++			      MTK_PHY_LED_ON_ENABLE |
++			      MTK_PHY_LED_ON_LINK10 |
++			      MTK_PHY_LED_ON_LINK100 |
++			      MTK_PHY_LED_ON_LINK1000 |
++			      MTK_PHY_LED_ON_LINK2500);
++		phy_write_mmd(phydev, MDIO_MMD_VEND2,
++			      MTK_PHY_LED0_BLINK_CTRL,
++			      MTK_PHY_LED_BLINK_1000TX | MTK_PHY_LED_BLINK_1000RX |
++			      MTK_PHY_LED_BLINK_100TX | MTK_PHY_LED_BLINK_100RX |
++			      MTK_PHY_LED_BLINK_10TX | MTK_PHY_LED_BLINK_10RX |
++			      MTK_PHY_LED_BLINK_2500TX | MTK_PHY_LED_BLINK_2500RX);
++	}
++
+ 	/* Switch pinctrl after setting polarity to avoid bogus blinking */
+ 	pinctrl = devm_pinctrl_get_select(&phydev->mdio.dev, "i2p5gbe-led");
+ 	if (IS_ERR(pinctrl) && PTR_ERR(pinctrl) != -ENODEV)

@@ -1,0 +1,8 @@
+#!/bin/sh /etc/rc.common
+
+START=97
+USE_PROCD=1
+
+start_service() {
+	/usr/libexec/samba4-nvme reconcile
+}

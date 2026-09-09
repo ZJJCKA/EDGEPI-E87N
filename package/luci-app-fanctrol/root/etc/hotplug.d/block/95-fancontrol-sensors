@@ -1,0 +1,22 @@
+#!/bin/sh
+
+# Wake the existing controller immediately when an NVMe namespace appears or
+# disappears. The daemon owns discovery and backoff; hotplug only interrupts
+# its current wait and does not start a second sensor process.
+case "${DEVNAME:-}" in
+	nvme*n*) ;;
+	*) exit 0 ;;
+esac
+
+case "${ACTION:-}" in
+	add|remove|change) ;;
+	*) exit 0 ;;
+esac
+
+pid="$(cat /var/run/fancontrol.pid 2>/dev/null)"
+case "$pid" in ''|*[!0-9]*) exit 0 ;; esac
+[ -r "/proc/$pid/cmdline" ] || exit 0
+tr '\000' '\n' < "/proc/$pid/cmdline" 2>/dev/null |
+	grep -F -x -q '/usr/bin/fancontrol' || exit 0
+kill -HUP "$pid" 2>/dev/null || true
+
