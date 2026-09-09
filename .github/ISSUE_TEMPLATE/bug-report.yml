@@ -1,5 +1,5 @@
-name: Bug report
-description: Create a bug report to help us improve
+name: EDGEPI-E87N bug report
+description: Report a reproducible E87N firmware issue
 labels:
   - bug
   - bug-report
@@ -35,14 +35,14 @@ body:
     attributes:
       label: OpenWrt target/subtarget
       description: |
-        The OpenWrt target and subtarget where this bug is observed (use command below).
+        The OpenWrt target and subtarget where this bug is observed.
         ```. /etc/openwrt_release && echo $DISTRIB_TARGET```
     validations:
       required: true
   - type: input
     id: device
     attributes:
-      label: Device
+      label: Device and hardware setup
       description: |
         The device exhibiting this bug (if unsure, use command below).
         ```cat /tmp/sysinfo/model```
@@ -53,8 +53,8 @@ body:
     attributes:
       label: Image kind
       options:
-        - Official downloaded image
-        - Self-built image
+        - GitHub Actions artifact
+        - Locally built image
     validations:
       required: true
   - type: textarea
@@ -91,5 +91,5 @@ body:
       label: Terms
       description: By submitting this issue, you agree to the terms below.
       options:
-        - label: I am reporting an issue for OpenWrt, not an unsupported fork.
+        - label: I verified that the issue occurs on an EdgePi E87N build from this repository.
           required: true

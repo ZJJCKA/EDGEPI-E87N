@@ -1,8 +1,11 @@
-Thanks for your contribution to OpenWrt!
+## Summary
 
-To help keep the codebase consistent and readable,
-and to help people review your contribution,
-we ask you to follow the rules you find in the wiki at this link
-https://openwrt.org/submitting-patches
+Describe the E87N change and why it is needed.
 
-Please remove this message before posting the pull request.
+## Verification
+
+- [ ] `bash -n build-e87n.sh` passes
+- [ ] Relevant package tests pass
+- [ ] `make menuconfig` keeps `edgepi_e87n` selected
+- [ ] No private OpenClash or PassWall configuration is included
+- [ ] File permissions were checked
