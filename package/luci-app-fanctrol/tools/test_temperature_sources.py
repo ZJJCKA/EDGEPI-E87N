@@ -8,9 +8,9 @@ BACKEND = UI.parent / "fancontrol"
 go = (BACKEND / "src/main.go").read_text()
 controller = (UI / "luasrc/controller/fancontrol.lua").read_text()
 view = (UI / "luasrc/view/fancontrol/main.htm").read_text()
-assert 'TEMP_SOURCE_IDS = { "cpu", "phy", "nvme1", "nvme2" }' in controller
-assert "var tempSourceKeys = ['cpu', 'phy', 'nvme1', 'nvme2'];" in view
-for key in ("cpu", "phy", "nvme1", "nvme2"):
+assert 'TEMP_SOURCE_IDS = { "cpu", "phy", "nvme0", "nvme1" }' in controller
+assert "var tempSourceKeys = ['cpu', 'phy', 'nvme0', 'nvme1'];" in view
+for key in ("cpu", "phy", "nvme0", "nvme1"):
     assert '"source_"+key+"_temp="' in go
     assert '"source_"+key+"_state="' in go
 for value in ("edgepi,e87n", "mangopi,m87k", "11280000.pcie", "11290000.pcie"):

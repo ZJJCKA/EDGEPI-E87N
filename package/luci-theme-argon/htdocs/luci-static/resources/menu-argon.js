@@ -221,15 +221,16 @@ return baseclass.extend({
 			}
 		}
 
-		// Attach event listeners for sidebar toggle functionality
-		var sidebarToggle = document.querySelector('a.showSide');
 		var darkMask = document.querySelector('.darkMask');
-		
-		if (sidebarToggle) {
-			sidebarToggle.addEventListener('click', ui.createHandlerFn(this, 'handleSidebarToggle'));
-		}
+
 		if (darkMask) {
-			darkMask.addEventListener('click', ui.createHandlerFn(this, 'handleSidebarToggle'));
+			darkMask.addEventListener('click', function () {
+				var sidebar = document.querySelector('#mainmenu');
+				var scrollbarArea = document.querySelector('.main-right');
+				if (sidebar) sidebar.classList.remove('active');
+				if (scrollbarArea) scrollbarArea.classList.remove('active');
+				darkMask.classList.remove('active');
+			});
 		}
 	},
 
@@ -423,39 +424,6 @@ return baseclass.extend({
 			}
 		}
 
-		return tabContainer;
-	},
-
-	/**
-	 * Handle sidebar toggle functionality
-	 * Toggles the mobile/responsive sidebar menu visibility
-	 * @param {Event} ev - Click event from sidebar toggle button or dark mask
-	 */
-	handleSidebarToggle: function (ev) {
-		var showSideButton = document.querySelector('a.showSide');
-		var sidebar = document.querySelector('#mainmenu');
-		var darkMask = document.querySelector('.darkMask');
-		var scrollbarArea = document.querySelector('.main-right');
-
-		// Check if any required elements are missing
-		if (!showSideButton || !sidebar || !darkMask || !scrollbarArea) {
-			console.warn('Sidebar toggle elements not found');
-			return;
+			return tabContainer;
 		}
-
-		// Toggle sidebar visibility and related states
-		if (showSideButton.classList.contains('active')) {
-			// Close sidebar
-			showSideButton.classList.remove('active');
-			sidebar.classList.remove('active');
-			scrollbarArea.classList.remove('active');
-			darkMask.classList.remove('active');
-		} else {
-			// Open sidebar
-			showSideButton.classList.add('active');
-			sidebar.classList.add('active');
-			scrollbarArea.classList.add('active');
-			darkMask.classList.add('active');
-		}
-	}
-});
+	});

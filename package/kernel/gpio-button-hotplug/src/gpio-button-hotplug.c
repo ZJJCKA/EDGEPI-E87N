@@ -738,4 +738,6 @@ GPIO_BUTTON_MODINFO(gpio_button_author_felix, "author",
 GPIO_BUTTON_MODINFO(gpio_button_description, "description",
 			"Polled GPIO Buttons hotplug driver");
 GPIO_BUTTON_MODINFO(gpio_button_alias, "alias", "platform:" DRV_NAME);
+/* This driver is maintained and built as part of this firmware tree. */
+GPIO_BUTTON_MODINFO(gpio_button_intree, "intree", "Y");
 MODULE_LICENSE("GPL v2");

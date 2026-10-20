@@ -3,12 +3,12 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=openclash-core-meta
 # APK package versions must start with a numeric component and cannot use the
 # upstream alpha tag verbatim. Keep the actual core tag separate: the binary
-# and OpenClash UI still report alpha-ge183c58.
-PKG_VERSION:=0.0.0_alpha~e183c58
+# and OpenClash UI still report alpha-gbc76c13.
+PKG_VERSION:=0.0.0_alpha~bc76c13
 PKG_RELEASE:=1
 
-OPENCLASH_CORE_VERSION:=alpha-ge183c58
-OPENCLASH_CORE_COMMIT:=7dedf5508d1aba0360820bff3532eb4257c79fae
+OPENCLASH_CORE_VERSION:=alpha-gbc76c13
+OPENCLASH_CORE_COMMIT:=276ae9d8e7f7d9b9814ae23e015cfe29804b2cbe
 OPENCLASH_CORE_ARCHIVE:=$(PKG_NAME)-$(OPENCLASH_CORE_VERSION)-linux-arm64.tar.gz
 
 PKG_MAINTAINER:=ZJJCKA
@@ -26,7 +26,7 @@ define Download/openclash-core-meta
   FILE:=$(OPENCLASH_CORE_ARCHIVE)
   URL:=https://raw.githubusercontent.com/vernesong/OpenClash/$(OPENCLASH_CORE_COMMIT)/master/meta
   URL_FILE:=clash-linux-arm64.tar.gz
-  HASH:=8252d16726041872825cdd9089c798c318f8862466b40b34d8bf62225ef57e34
+  HASH:=aae510c46001b8784b1480be94c3c740db9b387e5419604abaafa4189cd99c6d
 endef
 $(eval $(call Download,openclash-core-meta))
 

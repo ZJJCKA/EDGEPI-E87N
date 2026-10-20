@@ -1,0 +1,11 @@
+name: Build PR Profile
+
+on:
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+
+jobs:
+  build-pr-profile:
+    uses: openwrt/actions-shared-workflows/.github/workflows/build-pr-profile.yml@main

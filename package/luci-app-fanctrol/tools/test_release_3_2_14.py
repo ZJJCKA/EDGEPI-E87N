@@ -10,9 +10,8 @@ backend_make = (BACKEND / "Makefile").read_text()
 controller = (UI / "luasrc/controller/fancontrol.lua").read_text()
 view = (UI / "luasrc/view/fancontrol/main.htm").read_text()
 go = (BACKEND / "src/main.go").read_text()
-assert "PKG_VERSION:=3.2.14" in ui_make and "PKG_RELEASE:=10" in ui_make
+assert "PKG_VERSION:=3.2.14" in ui_make and "PKG_RELEASE:=11" in ui_make
 assert "LUCI_DEPENDS:=+luci-compat +fancontrol +kmod-hwmon-pwmfan" in ui_make
-assert "PKG_VERSION:=3.2.14" in backend_make and "PKG_RELEASE:=10" in backend_make
 assert "golang-package.mk" in backend_make and "GoBinPackage,fancontrol" in backend_make
 assert not (PACKAGES / "luci-app-fancontrol").exists()
 assert not (UI / "root/usr/bin/fancontrol").exists()

@@ -114,15 +114,15 @@ define Host/Configure/Meson
 endef
 
 define Host/Compile/Meson
-	+$(MESON_HOST_VARS) $(NINJA) -C $(MESON_HOST_BUILD_DIR) $(1)
+	+$(MESON_HOST_VARS) $(if $(NINJA_JOBS),env -u MAKEFLAGS $(NINJA) -j$(NINJA_JOBS),$(NINJA)) -C $(MESON_HOST_BUILD_DIR) $(1)
 endef
 
 define Host/Install/Meson
-	+$(NINJA) -C $(MESON_HOST_BUILD_DIR) install
+	+$(if $(NINJA_JOBS),env -u MAKEFLAGS $(NINJA) -j$(NINJA_JOBS),$(NINJA)) -C $(MESON_HOST_BUILD_DIR) install
 endef
 
 define Host/Uninstall/Meson
-	+$(NINJA) -C $(MESON_HOST_BUILD_DIR) uninstall || true
+	+$(if $(NINJA_JOBS),env -u MAKEFLAGS $(NINJA) -j$(NINJA_JOBS),$(NINJA)) -C $(MESON_HOST_BUILD_DIR) uninstall || true
 endef
 
 define Build/Configure/Meson
@@ -141,11 +141,11 @@ define Build/Configure/Meson
 endef
 
 define Build/Compile/Meson
-	+$(MESON_VARS) $(NINJA) -C $(MESON_BUILD_DIR) $(1)
+	+$(MESON_VARS) $(if $(NINJA_JOBS),env -u MAKEFLAGS $(NINJA) -j$(NINJA_JOBS),$(NINJA)) -C $(MESON_BUILD_DIR) $(1)
 endef
 
 define Build/Install/Meson
-	+DESTDIR="$(PKG_INSTALL_DIR)" $(NINJA) -C $(MESON_BUILD_DIR) install
+	+DESTDIR="$(PKG_INSTALL_DIR)" $(if $(NINJA_JOBS),env -u MAKEFLAGS $(NINJA) -j$(NINJA_JOBS),$(NINJA)) -C $(MESON_BUILD_DIR) install
 endef
 
 Host/Configure=$(call Host/Configure/Meson)

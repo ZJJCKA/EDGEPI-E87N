@@ -4,21 +4,12 @@ case "$(board_name)" in
 	edgepi,e87n|mangopi,m87k)
 		# Requested factory login for fresh images: root / password.
 		printf '%s\n%s\n' 'password' 'password' | passwd root >/dev/null 2>&1
-		banner_placeholder=''
 		case "$(board_name)" in
 			edgepi,e87n)
 				uci -q set system.@system[0].hostname='EdgePi E87N'
-				if [ -f /usr/share/e87n/banner ]; then
-					cp /usr/share/e87n/banner /etc/banner
-					banner_placeholder='@E87N_BUILD_INFO@'
-				fi
 				;;
 			mangopi,m87k)
 				uci -q set system.@system[0].hostname='MangoPi M87K'
-				if [ -f /usr/share/m87k/banner ]; then
-					cp /usr/share/m87k/banner /etc/banner
-					banner_placeholder='@M87K_BUILD_INFO@'
-				fi
 				;;
 		esac
 		uci -q set system.@system[0].zonename='Asia/Shanghai'
@@ -28,31 +19,24 @@ case "$(board_name)" in
 		uci -q add_list system.ntp.server='ntp2.aliyun.com'
 		uci -q add_list system.ntp.server='ntp3.aliyun.com'
 		uci -q commit system
-		if [ -n "$banner_placeholder" ]; then
-			build_epoch="$(sed -n 's/^OPENWRT_BUILD_DATE="\([0-9][0-9]*\)"$/\1/p' /usr/lib/os-release)"
-			build_date="$(TZ='CST-8' date -d "@$build_epoch" '+%Y-%m-%d' 2>/dev/null)"
-			[ -n "$build_date" ] || build_date="$build_epoch"
-			(
-				. /etc/openwrt_release
-				build_name="${DISTRIB_ID:-OpenWrt} ${DISTRIB_RELEASE:-SNAPSHOT}"
-				sed -i "s|$banner_placeholder|$build_name, $build_date By ZJJCKA|" /etc/banner
-			)
-		fi
-
-		# Keep the prefix explicit. On current netifd an address without a
-		# prefix becomes /32, which prevents dnsmasq from deriving a pool.
-		uci -q set network.lan.ipaddr='192.168.88.1/24'
+		# Keep the legacy LuCI representation: address and netmask are separate.
+		# netifd derives the same /24 at runtime without displaying it in ipaddr.
+		uci -q set network.lan.ipaddr='192.168.8.1'
+		uci -q set network.lan.netmask='255.255.255.0'
 		uci -q delete network.lan.dns
 		uci -q add_list network.lan.dns='223.5.5.5'
 		uci -q add_list network.lan.dns='223.6.6.6'
 		uci -q commit network
 
-		# Allocate the 192.168.88.2-254 pool from the lowest free address.
+		# Allocate the 192.168.8.2-254 pool from the lowest free address.
 		uci -q set 'dhcp.@dnsmasq[0].sequential_ip=1'
 		uci -q set 'dhcp.lan.ignore=0'
 		uci -q set 'dhcp.lan.dhcpv4=server'
 		uci -q set 'dhcp.lan.start=2'
 		uci -q set 'dhcp.lan.limit=253'
+		# With no WAN default route, explicitly advertise no IPv6 default
+		# route instead of letting odhcpd warn during every LAN-only boot.
+		uci -q set 'dhcp.lan.ra_lifetime=0'
 		# Keep AliDNS as the router fallback in WAN, 5G and LAN-only modes.
 		uci -q set 'dhcp.@dnsmasq[0].noresolv=1'
 		uci -q delete 'dhcp.@dnsmasq[0].server'
@@ -60,21 +44,19 @@ case "$(board_name)" in
 		uci -q add_list 'dhcp.@dnsmasq[0].server=223.6.6.6'
 		uci -q commit dhcp
 
-		# Keep storage management headless: block-mount provides the backend
-		# needed by NVMe/Samba, while luci-app-mounts stays excluded.
-		# Mount recognised, supported filesystems below /mnt without formatting
-		# or modifying their partition tables.
+		# Retain block info and root-filesystem tools, but let Samba4 exclusively
+		# own data-disk mounting on these boards. Never enable a second automounter.
 		if ! uci -q get 'fstab.@global[0]' >/dev/null; then
 			uci -q add fstab global >/dev/null
 		fi
 		uci -q set 'fstab.@global[0].anon_swap=0'
-		uci -q set 'fstab.@global[0].anon_mount=1'
+		uci -q set 'fstab.@global[0].anon_mount=0'
 		uci -q set 'fstab.@global[0].auto_swap=0'
-		uci -q set 'fstab.@global[0].auto_mount=1'
+		uci -q set 'fstab.@global[0].auto_mount=0'
 		uci -q set 'fstab.@global[0].delay_root=5'
 		uci -q set 'fstab.@global[0].check_fs=0'
 		uci -q commit fstab
-		/etc/init.d/fstab enable >/dev/null 2>&1 || true
+		/etc/init.d/fstab disable >/dev/null 2>&1 || true
 
 		uci -q set 'luci.themes.Argon=/luci-static/argon'
 		uci -q set 'luci.main.mediaurlbase=/luci-static/argon'
@@ -107,47 +89,8 @@ case "$(board_name)" in
 		uci -q commit upnpd
 		/etc/init.d/miniupnpd enable >/dev/null 2>&1 || true
 
-		# Source-only feeds are not published by downloads.openwrt.org. Keep
-		# their packages in the image, but never expose dead runtime indexes.
-		for feed_file in \
-			/etc/apk/repositories.d/distfeeds.list \
-			/etc/opkg/distfeeds.conf; do
-			[ -f "$feed_file" ] || continue
-			sed -i \
-				-e '\|/openclash\(/packages\.adb\)\?$|d' \
-				-e '\|/passwall_luci\(/packages\.adb\)\?$|d' \
-				-e '\|/passwall_packages\(/packages\.adb\)\?$|d' \
-				"$feed_file"
-		done
-
-		# The pinned OpenClash feed registers its Services menu at order 50.
-		# Put it ahead of Passwall on E87N/M87K; other boards keep feed defaults.
-		openclash_controller='/usr/lib/lua/luci/controller/openclash.lua'
-		if [ -f "$openclash_controller" ]; then
-			sed -i 's/_("OpenClash"), 50)/_("OpenClash"), -5)/' "$openclash_controller"
-			rm -f /tmp/luci-indexcache
-		fi
-
 		uci -q set openclash.config.core_version='arm64'
 		uci -q commit openclash
-
-		# OpenClash preserves /etc/openclash across sysupgrade, including an
-		# older downloaded core. Activate the alpha core pinned in this image
-		# image even when the user keeps settings during the firmware upgrade.
-		packaged_meta_core='/rom/etc/openclash/core/clash_meta'
-		active_meta_core='/etc/openclash/core/clash_meta'
-		if [ -x "$packaged_meta_core" ]; then
-			mkdir -p /etc/openclash/core
-			if ! cmp -s "$packaged_meta_core" "$active_meta_core"; then
-				core_tmp="${active_meta_core}.mt7987-new"
-				if cp "$packaged_meta_core" "$core_tmp"; then
-					chmod 0755 "$core_tmp"
-					mv -f "$core_tmp" "$active_meta_core"
-				else
-					rm -f "$core_tmp"
-				fi
-			fi
-		fi
 		;;
 esac
 

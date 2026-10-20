@@ -13,13 +13,95 @@ disk=/dev/mmcblk0
 sgdisk=/usr/bin/sgdisk
 verify_log=/tmp/emmc-gpt-verify.log
 repair_log=/tmp/emmc-gpt-repair.log
+layout_log=/tmp/emmc-gpt-layout.log
 
 log_gpt() {
 	logger -t emmc-gpt "$*"
 }
 
 remove_tool() {
-	rm -f "$verify_log" "$repair_log" "$sgdisk"
+	rm -f "$verify_log" "$repair_log" "$layout_log" "$sgdisk"
+}
+
+schedule_reboot() {
+	log_gpt "rootfs 分区扩容完成，将在 3 秒后重启以重新读取分区表"
+	sync
+	(sleep 3; reboot) >/dev/null 2>&1 &
+}
+
+grow_rootfs_partition() {
+	local node part first last last_usable type_guid unique_guid name max_last
+
+	# Resolve the rootfs partition by its GPT PARTNAME instead of assuming a
+	# partition number.  This keeps the E87N and M87K layouts independent.
+	for node in /sys/class/block/mmcblk0/mmcblk0p*; do
+		[ -r "$node/uevent" ] || continue
+		grep -qx 'PARTNAME=rootfs' "$node/uevent" || continue
+		part="$(cat "$node/partition" 2>/dev/null)"
+		break
+	done
+	case "$part" in ''|*[!0-9]*)
+		log_gpt "跳过扩容：无法唯一确定 eMMC rootfs 分区"
+		return 0
+	;; esac
+
+	LC_ALL=C "$sgdisk" -p "$disk" >"$layout_log" 2>&1 || {
+		log_gpt "跳过扩容：无法读取 eMMC GPT 布局"
+		return 0
+	}
+	last_usable="$(sed -n 's/.*last usable sector is \([0-9][0-9]*\).*/\1/p' "$layout_log" | head -n1)"
+	max_last="$(awk '$1 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { if ($3 > max) max=$3 } END { print max+0 }' "$layout_log")"
+	LC_ALL=C "$sgdisk" -i "$part" "$disk" >"$layout_log.info" 2>&1 || {
+		log_gpt "跳过扩容：无法读取 rootfs 分区属性"
+		rm -f "$layout_log.info"
+		return 0
+	}
+	first="$(sed -n 's/^First sector: \([0-9][0-9]*\).*/\1/p' "$layout_log.info")"
+	last="$(sed -n 's/^Last sector: \([0-9][0-9]*\).*/\1/p' "$layout_log.info")"
+	type_guid="$(sed -n 's/^Partition GUID code: \([^ ]*\).*/\1/p' "$layout_log.info")"
+	unique_guid="$(sed -n 's/^Partition unique GUID: \([^ ]*\).*/\1/p' "$layout_log.info")"
+	name="$(sed -n "s/^Partition name: '\(.*\)'$/\1/p" "$layout_log.info")"
+	rm -f "$layout_log.info"
+
+	case "$first:$last:$last_usable:$max_last" in
+		*[!0-9:]*|::*|*::*)
+			log_gpt "跳过扩容：rootfs 分区边界信息不完整"
+			return 0
+		;;
+	esac
+	[ -n "$type_guid" ] && [ -n "$unique_guid" ] && [ -n "$name" ] || {
+		log_gpt "跳过扩容：rootfs 分区身份信息不完整"
+		return 0
+	}
+	[ "$last" -eq "$max_last" ] || {
+		log_gpt "跳过扩容：rootfs 不是 eMMC 最后一个分区"
+		return 0
+	}
+	[ "$last" -lt "$last_usable" ] || {
+		log_gpt "通过：rootfs 分区已使用全部可用 eMMC 空间"
+		return 0
+	}
+	# Ignore sub-MiB alignment slack; it is not useful filesystem capacity.
+	[ $((last_usable - last)) -gt 2048 ] || {
+		log_gpt "通过：rootfs 尾部仅剩对齐保留空间"
+		return 0
+	}
+
+	log_gpt "检测到 rootfs 尾部可用空间，正在保持分区身份并扩展到 eMMC 末尾"
+	if LC_ALL=C "$sgdisk" \
+		-d "$part" \
+		-n "$part:$first:$last_usable" \
+		-t "$part:$type_guid" \
+		-u "$part:$unique_guid" \
+		-c "$part:$name" "$disk" >"$repair_log" 2>&1 &&
+		LC_ALL=C "$sgdisk" -v "$disk" >"$verify_log" 2>&1 &&
+		grep -q 'No problems found' "$verify_log"; then
+		log_gpt "rootfs 分区已从扇区 $last 扩展到 $last_usable，起始扇区 $first 未改变"
+		return 10
+	fi
+
+	log_gpt "rootfs 分区扩容失败；未安排重启，请检查 $repair_log"
+	return 0
 }
 
 if [ ! -b "$disk" ] || [ ! -x "$sgdisk" ]; then
@@ -31,43 +113,51 @@ fi
 "$sgdisk" -v "$disk" >"$verify_log" 2>&1 || true
 if grep -q 'No problems found' "$verify_log"; then
 	log_gpt "通过：GPT 结构一致"
-	remove_tool
-	exit 0
-fi
-
-log_gpt "检测到 GPT 问题，正在修复备份 GPT 元数据"
-if "$sgdisk" -e "$disk" >"$repair_log" 2>&1; then
-	"$sgdisk" -v "$disk" >"$verify_log" 2>&1 || true
-	if grep -q 'No problems found' "$verify_log"; then
-		log_gpt "修复完成并通过校验"
-	elif grep -q "main GPT header's current LBA pointer" "$verify_log"; then
-		# Rebuild only the final backup entry array and header from the valid
-		# primary GPT when -e cannot correct this exact reciprocal pointer fault.
-		sectors="$(cat /sys/class/block/mmcblk0/size 2>/dev/null)"
-		case "$sectors" in ''|*[!0-9]*|0|1) sectors=0;; esac
-		if [ "$sectors" -gt 67 ]; then
-			backup_start=$((sectors - 33))
-			dd if="$disk" of=/tmp/emmc-gpt-backup.before bs=512 \
-				skip="$backup_start" count=33 2>/dev/null
-			dd if=/dev/zero of="$disk" bs=512 seek="$backup_start" \
-				count=33 conv=notrunc 2>/dev/null
-			sync
-			"$sgdisk" -e "$disk" >>"$repair_log" 2>&1 || true
-			"$sgdisk" -v "$disk" >"$verify_log" 2>&1 || true
-			if grep -q 'No problems found' "$verify_log"; then
-				log_gpt "备份 GPT 已重建并通过校验"
-				rm -f /tmp/emmc-gpt-backup.before
+else
+	log_gpt "检测到 GPT 问题，正在修复备份 GPT 元数据"
+	if "$sgdisk" -e "$disk" >"$repair_log" 2>&1; then
+		"$sgdisk" -v "$disk" >"$verify_log" 2>&1 || true
+		if grep -q 'No problems found' "$verify_log"; then
+			log_gpt "修复完成并通过校验"
+		elif grep -q "main GPT header's current LBA pointer" "$verify_log"; then
+			# Rebuild only the final backup entry array and header from the valid
+			# primary GPT when -e cannot correct this exact reciprocal pointer fault.
+			sectors="$(cat /sys/class/block/mmcblk0/size 2>/dev/null)"
+			case "$sectors" in ''|*[!0-9]*|0|1) sectors=0;; esac
+			if [ "$sectors" -gt 67 ]; then
+				backup_start=$((sectors - 33))
+				dd if="$disk" of=/tmp/emmc-gpt-backup.before bs=512 \
+					skip="$backup_start" count=33 2>/dev/null
+				dd if=/dev/zero of="$disk" bs=512 seek="$backup_start" \
+					count=33 conv=notrunc 2>/dev/null
+				sync
+				"$sgdisk" -e "$disk" >>"$repair_log" 2>&1 || true
+				"$sgdisk" -v "$disk" >"$verify_log" 2>&1 || true
+				if grep -q 'No problems found' "$verify_log"; then
+					log_gpt "备份 GPT 已重建并通过校验"
+					rm -f /tmp/emmc-gpt-backup.before
+				else
+					log_gpt "备份 GPT 重建后校验失败"
+				fi
 			else
-				log_gpt "备份 GPT 重建后校验失败"
+				log_gpt "停止修复：eMMC 扇区数量无效"
 			fi
 		else
-			log_gpt "停止修复：eMMC 扇区数量无效"
+			log_gpt "修复命令已完成，但复核未通过"
 		fi
 	else
-		log_gpt "修复命令已完成，但复核未通过"
+		log_gpt "GPT 修复命令执行失败"
 	fi
-else
-	log_gpt "GPT 修复命令执行失败"
+fi
+
+# Expansion is allowed only after GPT integrity has been verified.
+if grep -q 'No problems found' "$verify_log"; then
+	grow_rootfs_partition
+	if [ "$?" -eq 10 ]; then
+		remove_tool
+		schedule_reboot
+		exit 0
+	fi
 fi
 
 # This image intentionally provides sgdisk only for the one-shot check.

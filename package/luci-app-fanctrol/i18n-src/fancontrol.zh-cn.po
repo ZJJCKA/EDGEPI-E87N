@@ -151,11 +151,11 @@ msgstr "处理器"
 msgid "Fan Source Ethernet PHY"
 msgstr "网口 PHY"
 
-msgid "Fan Source Solid State Drive 1"
-msgstr "NVMe 1"
+msgid "NVMe 0"
+msgstr "NVMe 0"
 
-msgid "Fan Source Solid State Drive 2"
-msgstr "NVMe 2"
+msgid "NVMe 1"
+msgstr "NVMe 1"
 
 msgid "Detecting"
 msgstr "检测中"

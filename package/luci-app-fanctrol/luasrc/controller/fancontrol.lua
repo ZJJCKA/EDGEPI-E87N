@@ -3,12 +3,12 @@ module("luci.controller.fancontrol", package.seeall)
 local CONFIG = "fancontrol"
 local SECTION = "settings"
 local UI_OWNER_FILE = "/var/run/fancontrol.ui-owner"
-local TEMP_SOURCE_IDS = { "cpu", "phy", "nvme1", "nvme2" }
+local TEMP_SOURCE_IDS = { "cpu", "phy", "nvme0", "nvme1" }
 local TEMP_SOURCE_ALLOWED = {
     cpu = true,
     phy = true,
-    nvme1 = true,
-    nvme2 = true
+    nvme0 = true,
+    nvme1 = true
 }
 local TEMP_POINTS = { 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110 }
 local PRESET_TARGETS = {
@@ -310,8 +310,8 @@ local function status_payload()
                 sources = {
                     runtime_source("cpu"),
                     runtime_source("phy"),
-                    runtime_source("nvme1"),
-                    runtime_source("nvme2")
+                    runtime_source("nvme0"),
+                    runtime_source("nvme1")
                 }
             } end
         end
@@ -351,8 +351,8 @@ local function status_payload()
         sources = {
             { id = "cpu", state = "missing", temp = nil },
             { id = "phy", state = "missing", temp = nil },
-            { id = "nvme1", state = "missing", temp = nil },
-            { id = "nvme2", state = "missing", temp = nil }
+            { id = "nvme0", state = "missing", temp = nil },
+            { id = "nvme1", state = "missing", temp = nil }
         }
     }
 end

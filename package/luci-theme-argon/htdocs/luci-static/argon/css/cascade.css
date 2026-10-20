@@ -1260,14 +1260,6 @@ header .fill .container {
 header .fill .container .flex1 {
   flex: 1;
 }
-header .fill .container .flex1 .showSide {
-  display: none;
-  font-size: 1.4rem;
-  color: #fff;
-}
-header .fill .container .flex1 .showSide:hover {
-  text-decoration: none;
-}
 header .fill .container .flex1 .brand {
   display: none;
   padding-left: 1rem;
@@ -3131,9 +3123,6 @@ label > input[type="radio"] {
 label[data-index][data-depends] {
   padding-right: 2em;
 }
-.showSide {
-  display: none;
-}
 .darkMask {
   position: fixed;
   z-index: 99;
@@ -4071,8 +4060,7 @@ div[style*="display:grid;grid-template-columns:repeat"] .ifacebox .ifacebox-body
   width: 100%;
 }
 [data-page^="admin-system-commands"] .panel-title,
-[data-page^="command-cfg"] .mobile-hide,
-[data-page^="command-cfg"] .showSide {
+[data-page^="command-cfg"] .mobile-hide {
   display: none;
 }
 #mwan3-service-status {
@@ -4092,9 +4080,6 @@ div[style*="display:grid;grid-template-columns:repeat"] .ifacebox .ifacebox-body
   }
   .main > .main-left > .nav > li:last-child::before {
     top: 20%;
-  }
-  .showSide::before {
-    top: -12px;
   }
 }
 @media screen and (max-width: 1600px) {
@@ -4202,11 +4187,6 @@ div[style*="display:grid;grid-template-columns:repeat"] .ifacebox .ifacebox-body
   }
   .main-left {
     width: calc(0% + 13rem);
-  }
-  body:not(.logged-in) .showSide {
-    visibility: hidden;
-    width: 0;
-    margin: 0;
   }
   .node-main-login > .main .cbi-value-title {
     text-align: left;
@@ -4373,24 +4353,6 @@ div[style*="display:grid;grid-template-columns:repeat"] .ifacebox .ifacebox-body
   }
   .darkMask.active {
     display: block;
-  }
-  .showSide {
-    padding: 0.1rem;
-    position: relative;
-    z-index: 99;
-    display: inline-block !important;
-  }
-  .showSide::before {
-    font-family: 'argon' !important;
-    font-style: normal !important;
-    font-weight: normal !important;
-    font-variant: normal !important;
-    text-transform: none !important;
-    line-height: 1;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    content: "\e20e";
-    font-size: 1.7rem;
   }
   header > .fill > .container > .flex1 > .brand {
     display: inline-block;

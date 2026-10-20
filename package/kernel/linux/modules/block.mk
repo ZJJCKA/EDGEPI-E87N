@@ -502,7 +502,9 @@ define KernelPackage/nvme
   FILES:= \
 	$(LINUX_DIR)/drivers/nvme/host/nvme-core.ko \
 	$(LINUX_DIR)/drivers/nvme/host/nvme.ko
-  AUTOLOAD:=$(call AutoLoad,30,nvme-core nvme,1)
+  # eMMC boards load data-disk drivers in the Samba4 procd worker, after LAN.
+  # Other targets retain early NVMe loading for NVMe-root/extroot support.
+  AUTOLOAD:=$(if $(filter y,$(CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n) $(CONFIG_TARGET_mediatek_filogic_DEVICE_mangopi_m87k)),,$(call AutoLoad,30,nvme-core nvme,1))
 endef
 
 define KernelPackage/nvme/description

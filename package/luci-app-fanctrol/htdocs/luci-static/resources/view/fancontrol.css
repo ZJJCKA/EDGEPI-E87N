@@ -880,9 +880,6 @@
     height: 34px;
     min-width: 68px;
     border-radius: 7px;
-}
-
-#fancontrol-root .mini-btn {
     background: rgba(13, 32, 53, .78) !important;
 }
 
@@ -1045,6 +1042,7 @@
     opacity: 0;
     transform: translateY(-10px);
     pointer-events: none;
+    overflow-wrap: anywhere;
     transition: opacity .2s ease, transform .2s ease;
 }
 
@@ -1296,10 +1294,6 @@
     flex-basis: 240px;
     height: 240px;
     min-height: 240px;
-}
-
-.fan-toast {
-    overflow-wrap: anywhere;
 }
 
 #fancontrol-root.layout-phone ~ .fan-toast {

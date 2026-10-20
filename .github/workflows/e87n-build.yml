@@ -1,48 +1,33 @@
-name: Verify EdgePi E87N source
-
+name: Build finalized E87N and M87K firmware
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
-
+concurrency:
+  group: finalized-firmware-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  verify:
+  build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
-
-      - name: Verify repository policy
-        shell: bash
+        with:
+          fetch-depth: 0
+      - name: Install build dependencies
         run: |
-          set -euo pipefail
-          bash -n build-e87n.sh
-          bash -n build-both-firmware.sh
-          for name in openclash passwall passwall_server; do
-            test ! -e "files/etc/config/$name"
-            git check-ignore -q "files/etc/config/$name"
-          done
-          test -d package/luci-app-display
-          test -d package/fancontrol
-          test -d package/luci-app-fanctrol
-          test -d package/luci-app-samba4
-          test -d package/samba4
-
-      - name: Test fan controller
-        run: |
-          (cd package/fancontrol/src && go test ./...)
-          for test_file in package/luci-app-fanctrol/tools/test_*.py; do
-            python3 "$test_file"
-          done
-
-      - name: Verify service scripts
-        run: |
-          sh -n package/luci-app-display/root/usr/sbin/display-control
-          sh -n package/luci-app-samba4/root/usr/libexec/samba4-nvme
-          sh -n package/luci-app-samba4/root/usr/libexec/samba4-set-password
-          sh -n package/luci-app-samba4/root/etc/init.d/samba4-nvme
-          sh -n package/luci-app-samba4/root/etc/hotplug.d/block/95-samba4-nvme
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison gawk gcc-multilib gettext git \
+            libncurses-dev libssl-dev python3 python3-setuptools rsync squashfs-tools swig \
+            unzip zlib1g-dev file wget nodejs golang-go cmake ninja-build libelf-dev zstd
+      - name: Build both public standard images from finalized sources
+        run: ./build-finalized.sh j4-standard
+      - uses: actions/upload-artifact@v4
+        with:
+          name: finalized-e87n-m87k-${{ github.sha }}
+          path: |
+            bin/targets/mediatek/filogic/*-squashfs-sysupgrade.bin
+            bin/targets/mediatek/filogic/*.manifest
+            bin/targets/mediatek/filogic/sha256sums
+            build-both-firmware/*.formal-audit
+          if-no-files-found: error

@@ -183,6 +183,12 @@ define Package/base-files/install
 			$(CP) $(PLATFORM_SUBDIR)/base-files/* $(1)/; \
 		fi; \
 	)
+	$(if $(CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n), \
+		$(CP) $(PLATFORM_SUBDIR)/base-files/usr/share/e87n/banner $(1)/etc/banner; \
+		$(SED) 's|@E87N_BUILD_INFO@|$(VERSION_DIST) $(VERSION_NUMBER) By ZJJCKA|' $(1)/etc/banner;)
+	$(if $(CONFIG_TARGET_mediatek_filogic_DEVICE_mangopi_m87k), \
+		$(CP) $(PLATFORM_SUBDIR)/base-files/usr/share/m87k/banner $(1)/etc/banner; \
+		$(SED) 's|@M87K_BUILD_INFO@|$(VERSION_DIST) $(VERSION_NUMBER) By ZJJCKA|' $(1)/etc/banner;)
 
 	$(VERSION_SED_SCRIPT) \
 		$(1)/etc/banner \
@@ -265,6 +271,16 @@ else
 	$(if $(CONFIG_IPK_FILES_CHECKSUMS),, \
 		rm -f $(1)/sbin/pkg_check)
 endif
+	$(if $(CONFIG_TARGET_BUTTON_CUSTOMIZATION_FAILSAFE_DISABLED), \
+		rm -f $(1)/etc/rc.button/failsafe)
+	$(if $(CONFIG_TARGET_BUTTON_CUSTOMIZATION_POWER_DISABLED), \
+		rm -f $(1)/etc/rc.button/power)
+	$(if $(CONFIG_TARGET_BUTTON_CUSTOMIZATION_REBOOT_DISABLED), \
+		rm -f $(1)/etc/rc.button/reboot)
+	$(if $(CONFIG_TARGET_BUTTON_CUSTOMIZATION_RESET_DISABLED), \
+		rm -f $(1)/etc/rc.button/reset)
+	$(if $(CONFIG_TARGET_BUTTON_CUSTOMIZATION_RF_KILL_DISABLED), \
+		rm -f $(1)/etc/rc.button/rfkill)
 endef
 
 ifneq ($(DUMP),1)

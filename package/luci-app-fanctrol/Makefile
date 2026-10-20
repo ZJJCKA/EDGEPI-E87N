@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-fanctrol
 PKG_VERSION:=3.2.14
-PKG_RELEASE:=10
+PKG_RELEASE:=11
 
 LUCI_TITLE:=Fan Control for MT7987 PWM fan devices
 LUCI_DEPENDS:=+luci-compat +fancontrol +kmod-hwmon-pwmfan

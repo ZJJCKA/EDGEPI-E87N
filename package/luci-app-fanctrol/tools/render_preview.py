@@ -103,8 +103,8 @@ body {{ margin: 0; color: #172033; background: #f2f5f8; font-family: "Segoe UI",
         sources: [
           {{ id: 'cpu', state: 'ok', temp: 53.3 }},
           {{ id: 'phy', state: 'ok', temp: 30.0 }},
-          {{ id: 'nvme1', state: 'missing', temp: null }},
-          {{ id: 'nvme2', state: 'missing', temp: null }}
+          {{ id: 'nvme0', state: 'missing', temp: null }},
+          {{ id: 'nvme1', state: 'missing', temp: null }}
         ]
       }};
     }} else if (action === 'set_config') {{

@@ -11,10 +11,13 @@ PKG_NAME:=fstools
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL=$(PROJECT_GIT)/project/fstools.git
-PKG_MIRROR_HASH:=c266c906cc40b0422f1e74e0118f68bb123c04233dfbf4689847eba74abec4eb
+PKG_SOURCE_URL=file://$(TOPDIR)/local-src/fstools-2026.05.23
+# Source is the audited local Git checkout pinned by PKG_SOURCE_VERSION.
+# A generated local archive is intentionally not compared to an unrelated
+# upstream mirror archive.
+PKG_MIRROR_HASH:=skip
 PKG_SOURCE_DATE:=2026-05-23
-PKG_SOURCE_VERSION:=16718b6e3c0fc7db7be6ae5848db0eae88ac8a8b
+PKG_SOURCE_VERSION:=99f3618530fc8c080a93f50f142efb93afb9b26e
 CMAKE_INSTALL:=1
 
 PKG_LICENSE:=GPL-2.0
@@ -25,8 +28,15 @@ PKG_FLAGS:=nonshared
 
 PKG_BUILD_DEPENDS := util-linux
 PKG_CONFIG_DEPENDS := CONFIG_NAND_SUPPORT CONFIG_FSTOOLS_UBIFS_EXTROOT
+PKG_CONFIG_DEPENDS += CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n CONFIG_TARGET_mediatek_filogic_DEVICE_mangopi_m87k
 
 PKG_MAINTAINER:=John Crispin <john@phrozen.org>
+
+# A source-only checkout carries the maintained tree without nested Git metadata.
+# Existing local Git checkouts keep the audited pinned download path.
+ifeq ($(wildcard $(TOPDIR)/local-src/fstools-2026.05.23/.git),)
+USE_SOURCE_DIR:=$(TOPDIR)/local-src/fstools-2026.05.23
+endif
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/cmake.mk
@@ -108,13 +118,22 @@ define Package/snapshot-tool/install
 	$(INSTALL_BIN) ./files/snapshot $(1)/sbin/
 endef
 
-define Package/block-mount/install
-	$(INSTALL_DIR) $(1)/sbin $(1)/lib $(1)/usr/sbin $(1)/etc/hotplug.d/block $(1)/etc/init.d/ $(1)/etc/uci-defaults/
-
+# These boards keep the block/rootfs tools, but Samba4 owns data-disk mounting.
+# Retain the generic autostart sources and install them only for other targets.
+ifeq ($(filter y,$(CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n) $(CONFIG_TARGET_mediatek_filogic_DEVICE_mangopi_m87k)),)
+define BlockMount/InstallAutostart
+	$(INSTALL_CONF) ./files/media-change.hotplug $(1)/etc/hotplug.d/block/00-media-change
 	$(INSTALL_BIN) ./files/fstab.init $(1)/etc/init.d/fstab
 	$(INSTALL_CONF) ./files/fstab.default $(1)/etc/uci-defaults/10-fstab
 	$(INSTALL_CONF) ./files/mount.hotplug $(1)/etc/hotplug.d/block/10-mount
-	$(INSTALL_CONF) ./files/media-change.hotplug  $(1)/etc/hotplug.d/block/00-media-change
+endef
+endif
+
+define Package/block-mount/install
+	$(INSTALL_DIR) $(1)/sbin $(1)/lib $(1)/usr/sbin $(1)/etc/config $(1)/etc/hotplug.d/block $(1)/etc/init.d/ $(1)/etc/uci-defaults/
+
+	$(call BlockMount/InstallAutostart,$(1))
+	$(INSTALL_CONF) ./files/fstab.config $(1)/etc/config/fstab
 
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/block $(1)/sbin/
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/libblkid-tiny.so $(1)/lib/

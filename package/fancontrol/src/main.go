@@ -49,7 +49,6 @@ type controller struct {
 	lastError   string
 	discoverIn  int
 	nvmeBackoff int
-	auxIn       int
 }
 
 func readTrim(path string) string {
@@ -189,6 +188,7 @@ func (c *controller) loadConfig() {
 	c.enabled = uciGet("enable", "1")
 	c.curve = uciGet("curve", defaultCurve)
 	c.selected, c.selectedOK = normalizeSource(uciGet("temp_sources", "cpu"))
+	c.discoverIn, c.nvmeBackoff = 0, 5
 }
 
 func normalizeSource(raw string) (string, bool) {
@@ -196,7 +196,7 @@ func normalizeSource(raw string) (string, bool) {
 	selected, valid := "", len(fields) == 1
 	if len(fields) > 0 {
 		switch fields[0] {
-		case "cpu", "phy", "nvme1", "nvme2":
+		case "cpu", "phy", "nvme0", "nvme1":
 			selected = fields[0]
 		default:
 			valid = false
@@ -216,7 +216,7 @@ func (c *controller) discover() {
 	zones, _ := filepath.Glob("/sys/class/thermal/thermal_zone*")
 	for _, zone := range zones {
 		t := strings.ToLower(readTrim(filepath.Join(zone, "type")))
-		if (strings.Contains(t, "cpu") || strings.Contains(t, "soc")) && readTrim(filepath.Join(zone, "temp")) != "" {
+		if strings.Contains(t, "cpu") || strings.Contains(t, "soc") {
 			c.cpuFiles = append(c.cpuFiles, filepath.Join(zone, "temp"))
 		}
 	}
@@ -243,13 +243,13 @@ func (c *controller) discover() {
 		}
 		device, _ := filepath.EvalSymlinks(filepath.Join(hwmon, "device"))
 		switch {
-		case c.board == "edgepi,e87n" && strings.Contains(device, "11290000.pcie"):
-			c.nvmeFiles[0] = input
 		case c.board == "edgepi,e87n" && strings.Contains(device, "11280000.pcie"):
-			c.nvmeFiles[1] = input
-		case c.board == "mangopi,m87k" && strings.Contains(device, "11280000.pcie"):
 			c.nvmeFiles[0] = input
+		case c.board == "edgepi,e87n" && strings.Contains(device, "11290000.pcie"):
+			c.nvmeFiles[1] = input
 		case c.board == "mangopi,m87k" && strings.Contains(device, "11290000.pcie"):
+			c.nvmeFiles[0] = input
+		case c.board == "mangopi,m87k" && strings.Contains(device, "11280000.pcie"):
 			c.nvmeFiles[1] = input
 		default:
 			generic = append(generic, sensorPath{device: device, input: input})
@@ -261,7 +261,13 @@ func (c *controller) discover() {
 			c.nvmeFiles[i], generic = generic[0].input, generic[1:]
 		}
 	}
-	if c.nvmeFiles[0] != "" && c.nvmeFiles[1] != "" {
+	selectedPresent := c.selected != "nvme0" && c.selected != "nvme1"
+	if c.selected == "nvme0" {
+		selectedPresent = c.nvmeFiles[0] != ""
+	} else if c.selected == "nvme1" {
+		selectedPresent = c.nvmeFiles[1] != ""
+	}
+	if selectedPresent {
 		c.nvmeBackoff, c.discoverIn = 5, 30
 	} else {
 		c.discoverIn = c.nvmeBackoff
@@ -292,37 +298,40 @@ func highest(files []string) reading {
 }
 
 func one(path string) reading {
+	if path == "" {
+		return reading{state: "missing"}
+	}
 	v, err := readInt(path)
-	if path == "" || err != nil || !validTemp(v) {
+	if err != nil || !validTemp(v) {
 		return reading{state: "missing"}
 	}
 	return reading{temp: v, state: "ok"}
 }
 
 func (c *controller) sample() {
-	full := c.auxIn <= 0
-	if full || c.selected == "cpu" {
+	for _, source := range []string{"cpu", "phy", "nvme0", "nvme1"} {
+		if source != c.selected {
+			c.sources[source] = reading{state: "missing"}
+		}
+	}
+	if c.selected == "cpu" {
 		c.sources["cpu"] = highest(c.cpuFiles)
 	}
-	if full || c.selected == "phy" {
+	if c.selected == "phy" {
 		c.sources["phy"] = highest(c.phyFiles)
 	}
-	if full || c.selected == "nvme1" {
-		c.sources["nvme1"] = one(c.nvmeFiles[0])
+	if c.selected == "nvme0" {
+		c.sources["nvme0"] = one(c.nvmeFiles[0])
+		if c.sources["nvme0"].state != "ok" {
+			c.nvmeFiles[0] = ""
+		}
+	}
+	if c.selected == "nvme1" {
+		c.sources["nvme1"] = one(c.nvmeFiles[1])
 		if c.sources["nvme1"].state != "ok" {
-			c.discoverIn = 0
+			c.nvmeFiles[1] = ""
 		}
 	}
-	if full || c.selected == "nvme2" {
-		c.sources["nvme2"] = one(c.nvmeFiles[1])
-		if c.sources["nvme2"].state != "ok" {
-			c.discoverIn = 0
-		}
-	}
-	if full {
-		c.auxIn = 5
-	}
-	c.auxIn--
 }
 
 type curvePoint struct{ temp, speed int }
@@ -381,7 +390,7 @@ func (c *controller) writeStatus(temp, speed, state int, message, source string)
 		fmt.Sprintf("temperature=%d", temp), fmt.Sprintf("speed=%d", speed), fmt.Sprintf("state=%d", state), "error=" + message,
 		"sample_uptime=" + uptimeSeconds(), "control_source=" + source, "selected_sources=" + c.selected,
 	}
-	for _, key := range []string{"cpu", "phy", "nvme1", "nvme2"} {
+	for _, key := range []string{"cpu", "phy", "nvme0", "nvme1"} {
 		r := c.sources[key]
 		if r.state == "" {
 			r.state = "missing"

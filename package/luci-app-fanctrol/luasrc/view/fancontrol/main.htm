@@ -1,5 +1,5 @@
 <%+header%>
-<link rel="stylesheet" href="/luci-static/resources/view/fancontrol.css?v=20260813r6">
+<link rel="stylesheet" href="/luci-static/resources/view/fancontrol.css?v=20260909r7">
 
 <h2 class="fancontrol-page-title"><a id="content" name="content"><%:Fan Control Center%></a></h2>
 <div class="cbi-map-descr fancontrol-page-description"><%:Smart tuning - Efficient cooling - Stable operation%></div>
@@ -108,8 +108,8 @@
                         <select class="temperature-source-select" aria-label="<%:Choose Temperature Sources%>" disabled>
                             <option value="cpu" disabled><%:Fan Source Processor%></option>
                             <option value="phy" hidden disabled><%:Fan Source Ethernet PHY%></option>
-                            <option value="nvme1" hidden disabled><%:Fan Source Solid State Drive 1%></option>
-                            <option value="nvme2" hidden disabled><%:Fan Source Solid State Drive 2%></option>
+                            <option value="nvme0" hidden disabled><%:NVMe 0%></option>
+                            <option value="nvme1" hidden disabled><%:NVMe 1%></option>
                         </select>
                     </div>
 
@@ -141,7 +141,7 @@
     var speed = 65;
     var rpm = '--';
     var temp = '--';
-    var tempSourceKeys = ['cpu', 'phy', 'nvme1', 'nvme2'];
+    var tempSourceKeys = ['cpu', 'phy', 'nvme0', 'nvme1'];
     var tempSourceStateNames = {
         detecting: '<%:Detecting%>',
         ok: '<%:Available%>',
@@ -246,7 +246,7 @@
             var reading = tempSourceReadings[key] || { state: 'detecting', temp: null };
             var state = tempSourceStateNames[reading.state] ? reading.state : 'error';
             var unavailable = state !== 'ok';
-            var isNvme = key === 'nvme1' || key === 'nvme2';
+            var isNvme = key === 'nvme0' || key === 'nvme1';
             var hideUnavailable = unavailable && (isNvme || key !== selected);
             option.disabled = unavailable;
             if (hideUnavailable) {
@@ -277,12 +277,12 @@
         var selectedReading = tempSourceReadings[selected] || { state: 'detecting' };
         var fallback = '';
 
-        if ((selected !== 'nvme1' && selected !== 'nvme2') || selectedReading.state === 'ok') return;
+        if ((selected !== 'nvme0' && selected !== 'nvme1') || selectedReading.state === 'ok') return;
 
         for (var i = 0; i < tempSourceKeys.length; i++) {
             var key = tempSourceKeys[i];
             var reading = tempSourceReadings[key];
-            if (key !== 'nvme1' && key !== 'nvme2' && reading && reading.state === 'ok') {
+            if (key !== 'nvme0' && key !== 'nvme1' && reading && reading.state === 'ok') {
                 fallback = key;
                 break;
             }

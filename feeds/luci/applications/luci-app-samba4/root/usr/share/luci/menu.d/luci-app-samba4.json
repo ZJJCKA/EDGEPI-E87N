@@ -1,0 +1,22 @@
+
+{
+	"admin/nas": {
+		"title": "NAS",
+		"order": 45,
+		"action": {
+			"type": "firstchild",
+			"recurse": true
+		}
+	},
+	"admin/nas/samba4": {
+		"title": "Network Shares",
+		"action": {
+			"type": "view",
+			"path": "samba4"
+		},
+		"depends": {
+			"acl": [ "luci-app-samba4" ],
+			"uci": { "samba4": true }
+		}
+	}
+}

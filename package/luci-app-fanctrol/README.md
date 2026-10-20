@@ -10,7 +10,7 @@
 
 - E87N 和 M87K 都使用正向 `pwm-fan` 冷却档位：`state 0` 停转，
   `max_state` 全速。
-- 温度来源为处理器、网口 PHY、NVMe 1、NVMe 2。
+- 温度来源为处理器、网口 PHY、NVMe 0、NVMe 1，与屏幕和 Samba4 的物理槽位编号一致。
 - CPU 读取 `cpu-thermal` 或 SoC thermal zone。
 - 网口 PHY 读取 `mdio_bus:*` hwmon，仅在已验证的 E87N/M87K 上启用。
 - 两块 NVMe 均读取各自的 `temp1_input` 复合温度，并按 hwmon 数字编号排序。

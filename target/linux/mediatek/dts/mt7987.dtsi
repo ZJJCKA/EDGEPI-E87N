@@ -130,6 +130,8 @@
 		l2_cache: l2-cache {
 			compatible = "cache";
 			cache-level = <2>;
+			/* Shared A53 cluster cache; required for DT cache topology. */
+			cache-unified;
 		};
 	};
 

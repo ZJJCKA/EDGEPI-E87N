@@ -1,0 +1,10 @@
+name: Issue Labeller
+on:
+  workflow_dispatch:
+
+jobs:
+  label-component:
+    name: Validate and Tag Bug Report
+    permissions:
+      issues: write
+    uses: openwrt/actions-shared-workflows/.github/workflows/issue-labeller.yml@main

@@ -11,15 +11,21 @@ PKG_NAME:=odhcpd
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL=$(PROJECT_GIT)/project/odhcpd.git
-PKG_MIRROR_HASH:=b9bd30d14f79e34b9f3511a511ef1cd1c4541568448e91fd02ae9173f12a0b64
+PKG_SOURCE_URL=file://$(TOPDIR)/local-src/odhcpd-2026.06.29
+PKG_MIRROR_HASH:=0ddee0526c1b3a45ace3278f057b5c604c33767b11493bbaf281ae1da5be2561
 PKG_SOURCE_DATE:=2026-06-29
-PKG_SOURCE_VERSION:=5d7be43f8b9dec0eb47e245cfab81108bb131273
+PKG_SOURCE_VERSION:=d524bc3c469df311759bbb9688cff3e5331b6fee
 
 PKG_MAINTAINER:=Álvaro Fernández Rojas <noltari@gmail.com>
 PKG_LICENSE:=GPL-2.0
 
 PKG_ASLR_PIE_REGULAR:=1
+
+# A source-only checkout carries the maintained tree without nested Git metadata.
+# Existing local Git checkouts keep the audited pinned download path.
+ifeq ($(wildcard $(TOPDIR)/local-src/odhcpd-2026.06.29/.git),)
+USE_SOURCE_DIR:=$(TOPDIR)/local-src/odhcpd-2026.06.29
+endif
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/cmake.mk

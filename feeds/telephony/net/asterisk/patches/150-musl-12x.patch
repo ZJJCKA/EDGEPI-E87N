@@ -1,0 +1,20 @@
+--- a/include/asterisk/compat.h
++++ b/include/asterisk/compat.h
+@@ -130,14 +130,16 @@ void timersub(struct timeval *tvend, str
+ 
+ #include <errno.h>
+ 
+-#ifdef SOLARIS
++#ifndef __BEGIN_DECLS
+ #define __BEGIN_DECLS
+ #define __END_DECLS
++#endif
+ 
+ #ifndef __P
+ #define __P(p) p
+ #endif
+ 
++#ifdef SOLARIS
+ #include <alloca.h>
+ #include <strings.h>
+ #include <pthread.h>

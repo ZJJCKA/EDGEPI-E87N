@@ -18,9 +18,6 @@
         top: 20%;
     }
 
-    .showSide::before {
-        top: -12px;
-    }
 }
 
 // 2. Large Desktop Screens (1600px and below)
@@ -182,13 +179,6 @@
 
     .main-left {
         width: calc(0% + 13rem);
-    }
-
-    // Login page specific
-    body:not(.logged-in) .showSide {
-        visibility: hidden;
-        width: 0;
-        margin: 0;
     }
 
     .node-main-login>.main .cbi-value-title {
@@ -410,27 +400,6 @@
 
     .darkMask.active {
         display: block;
-    }
-
-    // Mobile menu toggle
-    .showSide {
-        padding: 0.1rem;
-        position: relative;
-        z-index: 99;
-        display: inline-block !important;
-
-        &::before {
-            font-family: 'argon' !important;
-            font-style: normal !important;
-            font-weight: normal !important;
-            font-variant: normal !important;
-            text-transform: none !important;
-            line-height: 1;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-            content: "\e20e";
-            font-size: 1.7rem;
-        }
     }
 
     // Brand visibility

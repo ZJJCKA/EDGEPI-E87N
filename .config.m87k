@@ -62,3 +62,5 @@ CONFIG_PACKAGE_samba4-server=y
 CONFIG_PACKAGE_ttyd=y
 CONFIG_PACKAGE_uhttpd=y
 CONFIG_PACKAGE_uhttpd-mod-ubus=y
+CONFIG_EXTERNAL_KERNEL_TREE="/home/ht/openwrt/local-src/linux-6.12.112"
+CONFIG_DEVEL=y
